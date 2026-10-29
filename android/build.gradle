@@ -1,0 +1,66 @@
+// Módulo Android do TurboModule. Sem bloco buildscript: AGP, KGP e o plugin do React Native vêm do app hospedeiro
+// (no example, do classpath declarado em example/android/build.gradle).
+apply plugin: "com.android.library"
+apply plugin: "org.jetbrains.kotlin.android"
+apply plugin: "com.facebook.react"
+
+def safeExtGet(prop, fallback) {
+	rootProject.ext.has(prop) ? rootProject.ext.get(prop) : fallback
+}
+
+android {
+	namespace "br.com.grupotechnos.corenext"
+	compileSdk safeExtGet("compileSdkVersion", 36)
+
+	defaultConfig {
+		minSdkVersion safeExtGet("minSdkVersion", 26)
+		targetSdkVersion safeExtGet("targetSdkVersion", 36)
+	}
+
+	compileOptions {
+		sourceCompatibility JavaVersion.VERSION_17
+		targetCompatibility JavaVersion.VERSION_17
+	}
+
+	testOptions {
+		unitTests.all {
+			it.useJUnit()
+		}
+	}
+}
+
+kotlin {
+	compilerOptions {
+		jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+	}
+}
+
+repositories {
+	// O módulo de protocolo (technos-watch-protocol) é publicado só localmente nesta PoC (publishToMavenLocal).
+	// O app hospedeiro também precisa deste repositório (ver example/android/build.gradle).
+	mavenLocal {
+		content {
+			includeGroup("br.com.grupotechnos.watch")
+		}
+	}
+	google()
+	mavenCentral()
+}
+
+dependencies {
+	// A versão do react-android é definida pelo plugin do React Native do app hospedeiro.
+	implementation "com.facebook.react:react-android"
+	// Coordenada raiz do KMP: o Gradle escolhe a variante Android pelo metadata (.module) publicado.
+	implementation "br.com.grupotechnos.watch:protocol:0.1.0"
+
+	testImplementation "junit:junit:4.13.2"
+	testImplementation "org.jetbrains.kotlin:kotlin-test"
+	// O org.json do android.jar é só stub na JVM; a implementação real permite testar o codec do FileSampleStore.
+	testImplementation "org.json:json:20240303"
+}
+
+react {
+	jsRootDir = file("../src/")
+	libraryName = "NativeCoreNextSpec"
+	codegenJavaPackageName = "br.com.grupotechnos.corenext"
+}

@@ -1,0 +1,40 @@
+{
+  "name": "react-native-technos-core-next",
+  "version": "0.1.0",
+  "description": "Core React Native (TurboModule) dos smartwatches Technos sobre o módulo technos-watch-protocol. PoC: família SMA, Android.",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "react-native": "src/index.ts",
+  "source": "src/index.ts",
+  "files": [
+    "src",
+    "android",
+    "!android/build",
+    "!android/.gradle",
+    "!**/__tests__"
+  ],
+  "scripts": {
+    "typecheck": "./example/node_modules/.bin/tsc --noEmit -p tsconfig.json",
+    "test": "npm --prefix example test"
+  },
+  "keywords": [
+    "react-native",
+    "smartwatch",
+    "ble",
+    "technos"
+  ],
+  "license": "UNLICENSED",
+  "private": true,
+  "peerDependencies": {
+    "react": "*",
+    "react-native": ">=0.81.0"
+  },
+  "codegenConfig": {
+    "name": "NativeCoreNextSpec",
+    "type": "modules",
+    "jsSrcsDir": "src/specs",
+    "android": {
+      "javaPackageName": "br.com.grupotechnos.corenext"
+    }
+  }
+}

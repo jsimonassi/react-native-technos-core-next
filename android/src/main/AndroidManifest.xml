@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+	<!-- Android 12+ (API 31+). "neverForLocation" dispensa ACCESS_FINE_LOCATION no scan; sem a flag o scan volta vazio sem localização. -->
+	<uses-permission
+		android:name="android.permission.BLUETOOTH_SCAN"
+		android:usesPermissionFlags="neverForLocation" />
+	<uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+
+	<!-- Android 11 e anteriores: permissões legadas; o scan BLE exige localização até a API 30. -->
+	<uses-permission
+		android:name="android.permission.BLUETOOTH"
+		android:maxSdkVersion="30" />
+	<uses-permission
+		android:name="android.permission.BLUETOOTH_ADMIN"
+		android:maxSdkVersion="30" />
+	<uses-permission
+		android:name="android.permission.ACCESS_FINE_LOCATION"
+		android:maxSdkVersion="30" />
+
+	<!-- Serviço em primeiro plano só durante a sincronização (ble/SyncForegroundService). -->
+	<uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+	<uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+	<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+	<uses-feature
+		android:name="android.hardware.bluetooth_le"
+		android:required="false" />
+
+	<application>
+		<service
+			android:name=".ble.SyncForegroundService"
+			android:exported="false"
+			android:foregroundServiceType="connectedDevice" />
+	</application>
+</manifest>

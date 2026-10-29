@@ -1,0 +1,15 @@
+{
+  // A biblioteca não tem node_modules próprio: tipos e pacotes vêm do example/node_modules.
+  // Rodar com o tsc do exemplo: example/node_modules/.bin/tsc --noEmit -p tsconfig.json
+  "extends": "./example/node_modules/@react-native/typescript-config/tsconfig.json",
+  "compilerOptions": {
+    "typeRoots": ["./example/node_modules/@types"],
+    "types": ["jest"],
+    "paths": {
+      "react-native": ["./example/node_modules/react-native"],
+      "react": ["./example/node_modules/@types/react"]
+    }
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx"],
+  "exclude": ["example", "android", "**/node_modules"]
+}
