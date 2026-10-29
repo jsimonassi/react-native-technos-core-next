@@ -15,9 +15,12 @@ Log de diagnóstico do Core e gravação do tráfego GATT para virar fixture do 
 não estiver disponível) e devolve o caminho do primeiro:
 
 - `frames-<yyyyMMdd-HHmmss>.jsonl`: cabeçalho (`device`, `firmware`, `platform`, `mtu`, `recordedAt`, `timeZone`) e
-  uma linha por pacote (`dir`, `atMs`, `characteristic`, `hex`). É o arquivo que vai para
-  `technos-watch-protocol/.../fixtures/real/fitgps/<fw>/`.
-- `logs-<yyyyMMdd-HHmmss>.jsonl`: o anel, uma entrada JSON por linha.
+  uma linha por pacote (`dir`, `atMs`, `characteristic`, `hex`). O `recordedAt` é o instante do primeiro pacote
+  (atMs 0) em `yyyy-MM-dd'T'HH:mm:ss.SSSxxx`, com milissegundos e offset numérico mesmo em UTC
+  (`2026-10-29T08:14:10.933-03:00`, `2026-10-28T17:30:00.000+00:00`). É o arquivo que vai para
+  `technos-watch-protocol/fixtures/real/fitgps/<fw>/<cenário>.jsonl`: só o export mais recente de cada cenário,
+  porque cada export traz tudo desde o último `Clear` e o anterior é prefixo dele.
+- `logs-<yyyyMMdd-HHmmss>.jsonl`: o anel, uma entrada JSON por linha. Tem o MAC do relógio: nunca versionar.
 
 Para puxar sem root: `adb pull /sdcard/Android/data/<applicationId>/files/corenext/`.
 

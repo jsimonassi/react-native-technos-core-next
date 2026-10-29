@@ -41,6 +41,9 @@ pesado em primeiro plano) e confirmar `willRestoreState` no log.
 - Decisão para o iOS: informar à sessão (`onMtuChanged`) `maximumWriteValueLength(for: .withoutResponse) + 3`
   (reflete o MTU real) ou fixar `Quirks.maxFragment = 20` no perfil para iOS; manter `.withResponse` só como tipo de
   escrita. O iOS não negocia MTU pelo app: `requestMtu` responde na hora com o MTU efetivo.
+- No fitGPS 0.2.1 o Android negociou MTU 23 (pedido de 247, status 0; `transporte-android.md`, seção "O que a
+  gravação do fitGPS mostrou"). Se o relógio limita o link a 23, as duas opções acima dão o mesmo fragmento de 20
+  bytes para ele, o que tira o principal risco da escrita no iOS. A sessão já escreve sempre `WITH_RESPONSE`.
 
 ## Escrita sem resposta
 
@@ -52,7 +55,14 @@ que o write é aceito. Alternativa na PoC iOS: aceitar só `.withResponse` (é o
 ## Descoberta e notificações
 
 - O Core iOS atual casa só o NUS: write `6E400002`, notify `6E400003` (`SMAService.m:1054-1061`); a ordem de
-  candidatos (`FF60` antes do NUS) é da sessão, como no Android.
+  candidatos (`FF60` antes do NUS) é da sessão, como no Android. O fitGPS 0.2.1 expõe só o NUS (sem `FF60`).
+- **Scan:** o fitGPS 0.2.1 não anuncia o NUS (anúncio com `180f`, `180a` e `00000001-…`; gravação Android de
+  2026-10-29). No iOS, `scanForPeripherals(withServices:)` com o NUS não acharia o relógio: escanear com `nil` e
+  filtrar pelo nome `Mormaii_fitGPS`, como o Core iOS atual (`SMAService.m:508, 512`). Em segundo plano o iOS exige
+  uma lista de serviços no scan; a reconexão em segundo plano usa `retrievePeripherals(withIdentifiers:)` e
+  `connect` pendente, não scan.
+- O cabeçalho L1 de 8 bytes chegou sempre numa notificação própria no Android com MTU 23; a remontagem é da sessão e
+  vale igual no iOS.
 - `setNotifyValue(true, for:)` → `didUpdateNotificationStateFor` vira `onNotificationsEnabled`.
 - Notificações chegam em `didUpdateValueFor`; entregar uma por chamada, na ordem, com cópia dos bytes.
 - UUIDs: `CBUUID.uuidString` vem em maiúsculas e às vezes curto (`FF60`); passar por `GattUuid.normalize`.
@@ -76,7 +86,12 @@ tem nenhuma (só o header gerado foi verificado).
 ## Outras diferenças a cobrir
 
 - `CBCentralManagerOptionShowPowerAlertKey` (o Core atual liga, `SMAService.m:48`) e o mapeamento de
-  `centralManagerDidUpdateState` para `onBluetoothStateChanged`.
+  `centralManagerDidUpdateState` para `onBluetoothStateChanged`. Contrato do Bluetooth desligado ("contrato B",
+  `transporte-android.md#eventos-de-conexão`): em `.poweredOff`, entregar só `onBluetoothStateChanged(false)` e
+  **nenhum** `onDisconnected` para o periférico conectado ou a conexão pendente, e não emitir nada num `disconnect()`
+  seguinte até um `connect()` novo. É o comportamento natural do CoreBluetooth (não chama `didDisconnectPeripheral`
+  nesse caso), e o Android foi alinhado a ele. Estado inicial: se o central já nasce `.poweredOff`, entregar o mesmo
+  `false`, como o `reportBluetoothOffAtStartup` do Android.
 - Reconexão: `connect(peripheral)` sem timeout já é a conexão pendente do iOS; `retrievePeripherals(withIdentifiers:)`
   pelo UUID salvo substitui o scan por MAC do Android.
 - `address` no iOS é o UUID do periférico (muda se o app for reinstalado): o pareamento salvo não sobrevive à

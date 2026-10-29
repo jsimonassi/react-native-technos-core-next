@@ -113,6 +113,11 @@ Antes de pedir a reconexão, emite `onConnectStateChanged` com o estado atual da
 nativo sobrevive ao reload do JS; sem isso, um JS recarregado com o relógio já conectado ficaria sem estado até a
 próxima transição. Por isso chame `initialize()` **depois** de se inscrever em `onConnectStateChanged`.
 
+Com o Bluetooth já desligado quando o grafo nasce, a sessão passa a `BLUETOOTH_OFF` (`state` 4) logo em seguida
+(`CoreGraph` → `reportBluetoothOffAtStartup`). Como isso é assíncrono, o primeiro `initialize()` pode reenviar 0
+antes; o 4 chega depois pela própria transição. Ao religar o Bluetooth, o nativo reconecta ao relógio salvo, se
+houver (`reconnectIfPaired`).
+
 - Resolve: na hora.
 - Rejeita: só por exceção inesperada no nativo.
 - Core atual: `initSMASDK()` (`TechnosWareCore/src/NativeModules/specs/NativeCore.ts:11`), que no Android rejeita
@@ -262,6 +267,13 @@ roda, a sessão fica em `SYNCING` (o `state` continua 2) e um serviço em primei
 - Resolve: depois de `onSyncFinished`.
 - Rejeita: com o erro que interrompeu o sync (`NOT_READY`, `TIMEOUT`, `DISCONNECTED`, `CANCELLED`...). Falta de
   sono não é erro.
+- **Duração observada:** no fitGPS 0.2.1 com MTU 23, o primeiro sync levou **59 s** (59,3 s de `READY -> SYNCING` a
+  `SYNCING -> READY`), quase todo em 64 páginas de sono (`05/45`) de cerca de 900 ms cada, com registros antigos que o
+  relógio guardava porque o Core atual nunca lê o sono (atMs 1031806 a 1090678 da fixture
+  `technos-watch-protocol/fixtures/real/fitgps/0.2.1/pair-commands-bt-reconnect-sync.jsonl`, igual byte a byte
+  ao export `frames-20261029-083254.jsonl`; `transporte-android.md`). Entre o `onSyncProgress` 50 (passos lidos,
+  menos de 1 s depois do início) e o 100 (sono lido) passam cerca de 58 s sem evento nenhum. Quem tiver um timeout próprio menor que isso (o watchdog de 50 s do
+  app Mormaii) dá o sync por encerrado antes do fim: ver [`pendencias.md`](pendencias.md).
 - Core atual: `syncDataHistory(): void` (`NativeCore.ts:76`). No SMA é simulado: emite `onSyncStarted` e, 5 s (Android,
   `SMAService.java:1394-1403`) ou 12 s depois (iOS, `SMAService.m:768-773`), `onSyncFinished`, sem falar com o relógio.
 
@@ -282,8 +294,9 @@ Emite [`onHistorySleep`](#onhistorysleep) com as noites gravadas localmente, sem
 o sono do fitGPS nunca foi validado em produção.
 
 - Resolve: depois de emitir.
-- Rejeita com `NO_DATA` (e emite `onError` com `method: "getHistorySleep"`) quando não há nenhuma noite. Nunca fica
-  sem resposta.
+- Rejeita com `NO_DATA` **e também emite `onError`** (`code: "NO_DATA"`, `method: "getHistorySleep"`) quando não há
+  nenhuma noite, como toda rejeição. Quem escuta `onError` para mostrar falhas ao usuário deve ignorar esse caso: não é
+  falha, só falta de dado. Nunca fica sem resposta.
 - Core atual: `getHistorySleep(): void` (`NativeCore.ts:81`), vazio para SMA nas duas plataformas
   (`SMAService.java:1423`, `SMAService.m:167`): `onHistorySleep` nunca é emitido e o `getNativeEventData` do app só
   termina no timeout.
@@ -473,7 +486,11 @@ interface PedometerEvent {
 { "pedometer": 6230, "calorie": 241, "distance": 4512.3, "date": "2026-10-28T00:00:00-03:00" }
 ```
 
-Sai depois de `refreshSteps()` e quando o relógio avisa que os dados mudaram (`02/70`, `requestId -1`).
+Sai depois de `refreshSteps()` e quando o relógio avisa que os dados mudaram (`02/70`, `requestId -1`). Na gravação
+do fitGPS 0.2.1 o relógio não mandou nenhum `02/70`, nem em cerca de 384 s e 234 s conectado e parado (fixture
+`technos-watch-protocol/fixtures/real/fitgps/0.2.1/pair-commands-bt-reconnect-sync.jsonl`, igual byte a byte ao
+export `frames-20261029-083254.jsonl`): para passos ao vivo, chame `refreshSteps()` periodicamente, como o Core atual
+faz a cada 10 s (`SMAService.java:547-603`).
 
 Core atual: `{ pedometer }`, com o `step` do registro mais recente lido pelo polling, não o total do dia
 (`SMAService.java:387-456`); calorias e distância saem em eventos separados (`onCalories`, `onDistance`), que não
@@ -612,7 +629,10 @@ interface LogEvent {
 ```
 
 O exemplo é o frame SET_TIME de 2026-10-28 14:30:00 (vetor dourado do Repo 1); o texto de `message` vem do driver e
-pode mudar. Cada pacote é um fragmento como foi escrito ou notificado, não o frame remontado. `onLog` não passa
+pode mudar. Cada pacote é um fragmento como foi escrito ou notificado, não o frame remontado: com MTU 23 o cabeçalho
+de RX chega sozinho, e a linha `Frame/` de RX não traz `cmd/key` nem CRC. O resumo de cada frame remontado sai numa
+entrada `DEBUG` à parte, com tag `SmaDriver/frame`, `dir`/`hex` nulos e `message` `TX seq=<n> <rótulo> len=<n>` ou
+`RX seq=<n> <rótulo> len=<n> crc=ok` (só frames de dados; ACK e NACK ficam nas linhas `Frame/`). `onLog` não passa
 pela fila de eventos pendentes: o que acontecer antes de o JS se inscrever se recupera com `getLogs`. Novo.
 
 ## Constantes
@@ -761,9 +781,11 @@ O que muda ao trocar `react-native-technos-ware-core` por este pacote no `Smartw
 3. `onPedometer.pedometer` passa a ser o total de hoje; `onCalories`/`onDistance` não existem (os valores estão no
    próprio `onPedometer`).
 4. `onHistoryPedometer.date` passa a ser o início do dia também no Android.
-5. `getHistorySleep` agora responde (`onHistorySleep` ou `NO_DATA`); o `shouldSyncSleep` do app hoje sincroniza sono
-   do fitGPS por engano (`useSyncStepsRunner.ts:81`), então vale decidir se o sono do fitGPS deve ir ao backend.
-6. `syncDataHistory` passa a falar com o relógio e pode rejeitar; `onSyncFinished` só chega no sucesso.
+5. `getHistorySleep` agora responde (`onHistorySleep`, ou `NO_DATA` na Promise **e** em `onError`); o `shouldSyncSleep`
+   do app hoje sincroniza sono do fitGPS por engano (`useSyncStepsRunner.ts:81`), então vale decidir se o sono do
+   fitGPS deve ir ao backend.
+6. `syncDataHistory` passa a falar com o relógio e pode rejeitar; `onSyncFinished` só chega no sucesso. O primeiro
+   sync observado levou 59 s, acima do watchdog de 50 s do app ([`pendencias.md`](pendencias.md)).
 7. A reconexão ao abrir o app passa a ser nativa (`initialize` e volta ao primeiro plano); o `useSdkInit` pode
    continuar chamando `pairDevice(lastDevice)`, mas isso faz um handshake completo. `startPairingAttempt` é o
    equivalente sem BIND.

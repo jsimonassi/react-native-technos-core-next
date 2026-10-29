@@ -43,8 +43,13 @@ import java.util.UUID
  *   quem reconecta é a sessão, com um `connect(address, true)` novo. Só uma conexão pendente que falha sem nunca
  *   conectar é re-armada aqui, com espera que dobra a partir de [REARM_DELAY_MS]; [disconnect] (ou o Bluetooth
  *   desligar) cancela isso.
- * - Para cada `onConnected` sai exatamente um `onDisconnected`. [disconnect] sempre termina com `onDisconnected`.
- *   Falha de conexão direta (nunca conectou) também sai como `onDisconnected`, para a sessão encerrar o pareamento.
+ * - Quando sai `onConnected`/`onDisconnected` é decidido pelo [LinkLifecycle] (Kotlin puro, testado na JVM):
+ *   para cada `onConnected`, exatamente um `onDisconnected`, exceto com o Bluetooth desligado; [disconnect] termina
+ *   com um `onDisconnected` só se havia link aberto ou conexão pendente; falha de conexão direta (nunca conectou)
+ *   também sai como `onDisconnected`, para a sessão encerrar o pareamento.
+ * - Bluetooth desligado ([onBluetoothStateChanged] com `false`) não emite `onDisconnected` nenhum, nem para o link
+ *   aberto nem para a conexão pendente: o transporte para e só entrega `onBluetoothStateChanged(false)` ("contrato B",
+ *   no KDoc do [LinkLifecycle]).
  * - Nunca chama `BluetoothGatt.refresh()` por reflexão (a SDK SMA chama, `EaseConnector.java:118, 129-141`):
  *   é API oculta, bloqueada para apps novos e limpa o cache de serviços que o `autoConnect` aproveita.
  *
@@ -68,12 +73,17 @@ class AndroidGattTransport(
 		private set
 
 	// Estado abaixo: só na thread do GATT.
+	private val lifecycle = LinkLifecycle(object : LinkLifecycle.Output {
+		override fun onConnected() {
+			events?.onConnected()
+		}
+
+		override fun onDisconnected(status: Int, message: String) {
+			events?.onDisconnected(status, message)
+		}
+	})
 	private var gatt: BluetoothGatt? = null
-	private var generation = 0
 	private var targetAddress: String? = null
-	private var autoReconnect = false
-	private var linkConnected = false
-	private var stopped = true
 	private var rearmToken: Runnable? = null
 	private var pendingFailures = 0
 	private var reconnectScan: ScanCallback? = null
@@ -95,7 +105,7 @@ class AndroidGattTransport(
 	override fun discoverServices() {
 		handler.post {
 			val current = gatt
-			if (current == null || !linkConnected) {
+			if (current == null || !lifecycle.linkConnected) {
 				events?.onServicesDiscovered(emptyList(), GattStatus.NOT_CONNECTED)
 				return@post
 			}
@@ -115,7 +125,7 @@ class AndroidGattTransport(
 		handler.post {
 			val current = gatt
 			val target = findCharacteristic(service, characteristic)
-			if (current == null || !linkConnected) {
+			if (current == null || !lifecycle.linkConnected) {
 				events?.onNotificationsEnabled(requestId, GattStatus.NOT_CONNECTED)
 				return@post
 			}
@@ -147,7 +157,7 @@ class AndroidGattTransport(
 	override fun requestMtu(mtu: Int, requestId: Int) {
 		handler.post {
 			val current = gatt
-			if (current == null || !linkConnected) {
+			if (current == null || !lifecycle.linkConnected) {
 				events?.onMtuChanged(requestId, currentMtu, GattStatus.NOT_CONNECTED)
 				return@post
 			}
@@ -168,7 +178,7 @@ class AndroidGattTransport(
 		handler.post {
 			val current = gatt
 			val target = findCharacteristic(service, characteristic)
-			if (current == null || !linkConnected) {
+			if (current == null || !lifecycle.linkConnected) {
 				events?.onWriteCompleted(requestId, GattStatus.NOT_CONNECTED)
 				return@post
 			}
@@ -191,7 +201,7 @@ class AndroidGattTransport(
 		handler.post {
 			val current = gatt
 			val target = findCharacteristic(service, characteristic)
-			if (current == null || !linkConnected) {
+			if (current == null || !lifecycle.linkConnected) {
 				events?.onReadCompleted(requestId, null, GattStatus.NOT_CONNECTED)
 				return@post
 			}
@@ -212,8 +222,10 @@ class AndroidGattTransport(
 	/**
 	 * Bluetooth do telefone ligou ou desligou (vem do [BluetoothStateReceiver]).
 	 *
-	 * Ao desligar: cancela tudo, fecha o GATT e entrega `onDisconnected` (se havia link) antes de
-	 * `onBluetoothStateChanged(false)`, para o último estado da sessão ser `BLUETOOTH_OFF`.
+	 * Ao desligar ("contrato B", no KDoc do [LinkLifecycle]): cancela re-arme e scan de reconexão, falha as operações
+	 * pendentes, fecha o GATT e para o transporte **sem** `onDisconnected`, nem para o link aberto nem para a conexão
+	 * pendente; depois entrega só `onBluetoothStateChanged(false)`. Um `disconnect()` seguinte e os callbacks atrasados
+	 * do GATT fechado não emitem nada até um `connect()` novo.
 	 * Ao ligar: só repassa; quem decide reconectar é o `CoreGraph`.
 	 *
 	 * @param afterDelivered roda na thread do GATT depois de o evento ir para a sessão; o `CoreGraph` usa para
@@ -221,17 +233,40 @@ class AndroidGattTransport(
 	 */
 	fun onBluetoothStateChanged(enabled: Boolean, afterDelivered: (() -> Unit)? = null) {
 		handler.post {
-			if (!enabled) {
-				val hadLink = linkConnected
-				cancelRearm()
-				stopReconnectScan()
-				closeGatt()
-				if (hadLink) events?.onDisconnected(GattStatus.NOT_CONNECTED, "Bluetooth turned off")
+			if (enabled) {
+				log(LogLevel.INFO, "onBluetoothStateChanged", "enabled=true")
+			} else {
+				stopForBluetoothOff()
 			}
-			log(LogLevel.INFO, "onBluetoothStateChanged", "enabled=$enabled")
 			events?.onBluetoothStateChanged(enabled)
 			afterDelivered?.invoke()
 		}
+	}
+
+	/**
+	 * Partida do processo com o Bluetooth já desligado: entrega o mesmo que um `STATE_OFF`, porque o
+	 * [BluetoothStateReceiver] só avisa transições e a sessão ficaria em `DISCONNECTED` (o JS veria 0, não 4) até
+	 * alguém religar o Bluetooth.
+	 *
+	 * O adaptador é lido aqui, na thread do GATT, e o `CoreGraph` chama isto depois de registrar o receiver: se o
+	 * Bluetooth ligar no meio, ou esta leitura já o vê ligado e não entrega nada, ou o `STATE_ON` do receiver entra
+	 * na fila depois do `false` daqui. Nos dois casos o último estado da sessão é o certo.
+	 */
+	fun reportBluetoothOffAtStartup() {
+		handler.post {
+			if (BlePermissions.isBluetoothEnabled(appContext)) return@post
+			log(LogLevel.INFO, "reportBluetoothOffAtStartup", "Bluetooth already off when the native graph was created")
+			stopForBluetoothOff()
+			events?.onBluetoothStateChanged(false)
+		}
+	}
+
+	private fun stopForBluetoothOff() {
+		cancelRearm()
+		stopReconnectScan()
+		closeGatt()
+		val wasActive = lifecycle.bluetoothOff()
+		log(LogLevel.INFO, "onBluetoothStateChanged", "enabled=false; transport stopped without onDisconnected (active=$wasActive)")
 	}
 
 	/** Encerra a thread do GATT. O `CoreGraph` vive o processo inteiro, então só testes e ferramentas chamam. */
@@ -243,30 +278,30 @@ class AndroidGattTransport(
 	}
 
 	private fun doConnect(address: String, auto: Boolean) {
-		val adapter = BlePermissions.adapter(appContext)
-		if (adapter == null || !adapter.isEnabled) {
-			events?.onDisconnected(GattStatus.NOT_CONNECTED, "Bluetooth is off")
-			return
-		}
-		if (!BlePermissions.hasConnectPermission(appContext)) {
-			events?.onDisconnected(GattStatus.NOT_CONNECTED, "BLUETOOTH_CONNECT not granted")
-			return
-		}
-		if (!BluetoothAdapter.checkBluetoothAddress(address)) {
-			events?.onDisconnected(GattStatus.NOT_FOUND, "Invalid address $address")
-			return
-		}
 		cancelRearm()
 		stopReconnectScan()
-		val hadLink = linkConnected
 		closeGatt()
-		if (hadLink) events?.onDisconnected(GattStatus.SUCCESS, "Link replaced by a new connect")
+		val adapter = BlePermissions.adapter(appContext)?.takeIf { it.isEnabled }
+			?: return rejectConnect(GattStatus.NOT_CONNECTED, "Bluetooth is off")
+		if (!BlePermissions.hasConnectPermission(appContext)) return rejectConnect(GattStatus.NOT_CONNECTED, "BLUETOOTH_CONNECT not granted")
+		if (!BluetoothAdapter.checkBluetoothAddress(address)) return rejectConnect(GattStatus.NOT_FOUND, "Invalid address $address")
+		lifecycle.connectAccepted(auto)
 		targetAddress = address
-		autoReconnect = auto
-		stopped = false
 		pendingFailures = 0
 		val device = adapter.getRemoteDevice(address)
 		if (auto) connectPending(device) else openGatt(device, autoConnect = false)
+	}
+
+	/**
+	 * `connect()` recusado antes de abrir GATT: exatamente um `onDisconnected` e o transporte parado, para um
+	 * `disconnect()` seguinte não emitir outro. Na gravação do fitGPS, o `connect()` que a sessão fez com o adaptador
+	 * já desligado (`READY -> RECONNECTING`, `logs-20261029-083254.jsonl` linha 102, ts 1793272958497) é o segundo
+	 * `onDisconnected` dos três do Bluetooth desligado (linha 109, ts 1793272958524), e o `disconnect()` seguinte ainda
+	 * gerou o terceiro (linha 110, ts 1793272958525). O log fica fora do git, por ter o MAC.
+	 */
+	private fun rejectConnect(status: Int, message: String) {
+		log(LogLevel.WARN, "connect", "Rejected: $message")
+		lifecycle.connectRejected(status, message)
 	}
 
 	/**
@@ -328,8 +363,8 @@ class AndroidGattTransport(
 
 	private fun openGatt(device: BluetoothDevice, autoConnect: Boolean) {
 		closeGatt()
-		generation++
-		val callback = Callback(generation)
+		val gattGeneration = lifecycle.gattOpening()
+		val callback = Callback(gattGeneration)
 		currentMtu = DEFAULT_MTU
 		val opened = try {
 			device.connectGatt(appContext, autoConnect, callback, BluetoothDevice.TRANSPORT_LE, BluetoothDevice.PHY_LE_1M_MASK, handler)
@@ -338,35 +373,31 @@ class AndroidGattTransport(
 		}
 		if (opened == null) {
 			log(LogLevel.ERROR, "openGatt", "connectGatt returned null for ${device.address}")
-			stopped = true
-			events?.onDisconnected(GattQueue.GATT_FAILURE, "connectGatt failed")
+			lifecycle.openFailed(GattQueue.GATT_FAILURE)
 			return
 		}
 		gatt = opened
-		log(LogLevel.INFO, "openGatt", "address=${device.address} autoConnect=$autoConnect generation=$generation")
+		log(LogLevel.INFO, "openGatt", "address=${device.address} autoConnect=$autoConnect generation=$gattGeneration")
 	}
 
 	private fun doDisconnect() {
 		// Contrato do `Transport.disconnect` (ADR 12 do Repo 1): um onDisconnected só se havia link aberto ou pendente.
-		val wasActive = !stopped
-		stopped = true
+		// Depois do Bluetooth desligado não há nenhum dos dois, então não sai nada (contrato B).
 		cancelRearm()
 		stopReconnectScan()
 		closeGatt()
+		val wasActive = lifecycle.disconnectRequested()
 		log(LogLevel.INFO, "disconnect", "Requested by the session (active=$wasActive)")
-		if (wasActive) events?.onDisconnected(GattStatus.SUCCESS, "Disconnected on request")
 	}
 
-	/** Fecha o GATT atual sem emitir nada; quem chama decide o evento. */
+	/**
+	 * Fecha o GATT atual sem emitir nada e falha as operações pendentes (antes do `onDisconnected`, se houver um).
+	 * Quem chama avisa o [lifecycle], que decide o evento e invalida os callbacks do GATT fechado.
+	 */
 	private fun closeGatt() {
 		queue.failAll(GattStatus.NOT_CONNECTED)
-		val current = gatt ?: run {
-			linkConnected = false
-			return
-		}
+		val current = gatt ?: return
 		gatt = null
-		generation++
-		linkConnected = false
 		try {
 			current.disconnect()
 			current.close()
@@ -376,50 +407,35 @@ class AndroidGattTransport(
 	}
 
 	private fun handleConnectionChange(gattGeneration: Int, source: BluetoothGatt, status: Int, newState: Int) {
-		if (gattGeneration != generation) {
-			// Callback de um GATT já fechado: ignorar, o evento dele já foi decidido em closeGatt/doConnect.
+		if (!lifecycle.isCurrent(gattGeneration)) {
+			// Callback de um GATT já fechado (inclusive pelo Bluetooth desligado): o evento dele já foi decidido.
 			return
 		}
 		log(LogLevel.INFO, "onConnectionStateChange", "status=$status newState=$newState generation=$gattGeneration")
 		when (newState) {
 			BluetoothProfile.STATE_CONNECTED -> {
-				linkConnected = true
 				pendingFailures = 0
 				currentMtu = DEFAULT_MTU
-				events?.onConnected()
+				lifecycle.linkUp(gattGeneration)
 			}
 
 			BluetoothProfile.STATE_DISCONNECTED -> {
-				val wasConnected = linkConnected
 				queue.failAll(GattStatus.NOT_CONNECTED)
-				linkConnected = false
 				gatt = null
-				generation++
 				try {
 					source.close()
 				} catch (error: SecurityException) {
 					log(LogLevel.WARN, "onConnectionStateChange", "SecurityException closing GATT: ${error.message}")
 				}
-				when {
-					wasConnected -> {
-						// Não re-arma: a sessão decide se e quando reconectar (connect(address, true) na hora para um
-						// link pronto, com espera para um que caiu antes do READY) e desiste sem chamar disconnect()
-						// num pareamento que caiu ou num forget em andamento. Um re-arme aqui reabriria o link por
-						// conta própria nesses casos (ADR 11 e 12 do Repo 1).
-						stopped = true
-						events?.onDisconnected(status, "Link lost (status=$status)")
-					}
-					!autoReconnect -> {
-						// Conexão direta que falhou não fica pendente: um disconnect() depois disso não deve gerar evento.
-						stopped = true
-						events?.onDisconnected(status, "Connect failed (status=$status)")
-					}
-					else -> {
-						pendingFailures++
-						log(LogLevel.WARN, "onConnectionStateChange", "Pending connection failed (status=$status, failures=$pendingFailures), re-arming")
-					}
+				// LOST não re-arma: a sessão decide se e quando reconectar (connect(address, true) na hora para um link
+				// pronto, com espera para um que caiu antes do READY) e desiste sem chamar disconnect() num pareamento
+				// que caiu ou num forget em andamento. Um re-arme aqui reabriria o link por conta própria nesses casos
+				// (ADR 11 e 12 do Repo 1). CONNECT_FAILED (conexão direta) também não fica pendente.
+				if (lifecycle.linkDown(gattGeneration, status) == LinkLifecycle.LinkDown.PENDING_FAILED) {
+					pendingFailures++
+					log(LogLevel.WARN, "onConnectionStateChange", "Pending connection failed (status=$status, failures=$pendingFailures), re-arming")
+					scheduleRearm()
 				}
-				if (!stopped && autoReconnect) scheduleRearm()
 			}
 		}
 	}
@@ -429,10 +445,9 @@ class AndroidGattTransport(
 		val address = targetAddress ?: return
 		val action = Runnable {
 			rearmToken = null
-			if (stopped || gatt != null || targetAddress != address) return@Runnable
+			if (!lifecycle.active || gatt != null || targetAddress != address) return@Runnable
 			val adapter = BlePermissions.adapter(appContext)
 			if (adapter == null || !adapter.isEnabled) return@Runnable
-			autoReconnect = true
 			log(LogLevel.INFO, "rearm", "Re-arming pending connection to $address")
 			connectPending(adapter.getRemoteDevice(address))
 		}
@@ -492,8 +507,9 @@ class AndroidGattTransport(
 		value: ByteArray,
 		type: WriteType,
 	): Int {
-		// A SDK SMA nunca troca o write type (usa o padrão da characteristic, `SmaMessenger.java:118-119`);
-		// aqui quem escolhe é a sessão, a partir das propriedades descobertas.
+		// A sessão sempre pede WITH_RESPONSE (`SmaDriver.sendFrame` e `SmaDriver.writeControl` do Repo 1), sem
+		// olhar as propriedades descobertas; WITHOUT_RESPONSE só está mapeado porque o contrato do `Transport` o
+		// permite. A SDK SMA nunca define o tipo e herda o inicial da characteristic (`SmaMessenger.java:118-119`).
 		val writeType = when (type) {
 			WriteType.WITH_RESPONSE -> BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
 			WriteType.WITHOUT_RESPONSE -> BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
@@ -531,7 +547,7 @@ class AndroidGattTransport(
 	/** Callbacks de um `BluetoothGatt` específico; os de gerações antigas (GATT já fechado) são ignorados. */
 	private inner class Callback(private val gattGeneration: Int) : BluetoothGattCallback() {
 		private val current: Boolean
-			get() = gattGeneration == generation
+			get() = lifecycle.isCurrent(gattGeneration)
 
 		override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
 			handleConnectionChange(gattGeneration, gatt, status, newState)

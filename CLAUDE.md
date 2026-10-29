@@ -78,8 +78,12 @@ formato de fixture do Repo 1) e `logs-<carimbo>.jsonl` (o anel de 2000 entradas)
 adb pull /storage/emulated/0/Android/data/br.com.grupotechnos.corenext.example/files/corenext ./corenext-export
 ```
 
-A gravação de frames vira fixture real do Repo 1 em `fixtures/real/fitgps/<firmware>/<cenário>.jsonl` (formato no
-`docs/fixtures.md` de lá). `Clear` antes de cada cenário para a gravação começar limpa.
+A gravação de frames vira fixture real do Repo 1 em `fixtures/real/fitgps/<fw>/<cenário>.jsonl` (formato no
+`docs/fixtures.md` de lá). Um cenário por gravação: `Export` antes de cada `Clear` (o `Clear` apaga o anel e a
+gravação). Os exports são cumulativos (o anterior é prefixo do seguinte): copie só o `frames-*.jsonl` mais recente.
+**Nunca** versione `logs-*.jsonl` nem a pasta `corenext-export/`: o log tem o MAC do relógio. Quem os ignora é o
+`.gitignore` da raiz, e ele só protege um clone se estiver versionado: `git ls-files .gitignore` tem de imprimir o
+nome. Se não imprimir, ele (e o `.editorconfig`) entra no próximo commit, antes de qualquer `git add -A`.
 
 ## Contrato (mudar com cuidado)
 
@@ -95,8 +99,9 @@ trocar de pacote mudando só o import; um campo novo entra como opcional. Códig
 (`errorCodes`) e na tabela do `docs/api-js.md`. Mudou uma lista, mude as três.
 
 Do lado nativo, o host também cumpre o contrato do Repo 1: `Transport` (um `onDisconnected` por `disconnect()`
-com link aberto ou pendente, eventos em ordem), `SampleStore` e `WatchSessionListener` (um callback terminal por
-`requestId`; o `RequestRegistry` nunca usa `-1`).
+com link aberto ou pendente; Bluetooth desligado entrega só `onBluetoothStateChanged(false)`, nenhum `onDisconnected`,
+e o `disconnect()` seguinte não emite nada; eventos em ordem; regra no `ble/LinkLifecycle`), `SampleStore` e
+`WatchSessionListener` (um callback terminal por `requestId`; o `RequestRegistry` nunca usa `-1`).
 
 ## Pacotes Android e dependências
 
@@ -128,8 +133,8 @@ estão `public` por exigência do RN (o módulo e o pacote).
   Afirmação sobre o relógio ou sobre o Core atual cita a fonte (`SMAService.java:254-262`) ou a fixture.
 - Cada pasta de `android/src/main/java/br/com/grupotechnos/corenext/` tem `README.md` (o que faz, o que não faz,
   de quem depende); pasta nova ganha o seu.
-- Lógica testável sem Android fica em Kotlin puro (`bridge/`, `store/SampleJsonCodec`, `GattQueue`) com teste em
-  `android/src/test/`.
+- Lógica testável sem Android fica em Kotlin puro (`bridge/`, `store/SampleJsonCodec`, `GattQueue`, `LinkLifecycle`)
+  com teste em `android/src/test/`.
 
 ## Onde está cada doc e quando atualizar
 
@@ -139,6 +144,8 @@ estão `public` por exigência do RN (o módulo e o pacote).
 | quem faz o quê, ciclo de vida, threading, FGS, reconexão automática | [`docs/arquitetura.md`](docs/arquitetura.md) |
 | GATT, fila, MTU, CCCD, write type, autoConnect, Bluetooth on/off | [`docs/transporte-android.md`](docs/transporte-android.md) |
 | algo descoberto que afeta o iOS futuro | [`docs/ios-pendente.md`](docs/ios-pendente.md) |
+| pendência do host ou da integração com o app Mormaii (watchdog do sync, polling, `deviceId`, eventos sem equivalente) | [`docs/pendencias.md`](docs/pendencias.md) |
 | como rodar, permissões, abas, checklist com o relógio | [`example/README.md`](example/README.md) |
 | arquivos do `src/` | [`src/README.md`](src/README.md) |
 | hipótese do protocolo confirmada ou derrubada no relógio | `docs/decisoes.md` e `docs/protocolo-sma.md` do Repo 1 |
+| o que falta validar com o relógio | `docs/pendencias.md` do Repo 1 |

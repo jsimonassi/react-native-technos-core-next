@@ -40,6 +40,13 @@ JS (TechnosCore)  ──métodos──▶  NativeCoreNextModule ──▶ WatchS
 - **`initialize()`/`initSMASDK()`** são idempotentes: criam o grafo se preciso, reenviam o estado atual da sessão
   como `onConnectStateChanged` (`CoreGraph.emitCurrentState`; sem isso um JS recarregado com o relógio já `READY`
   ficaria sem estado até a próxima transição) e tentam reconectar ao relógio salvo.
+- **Bluetooth desligado.** O transporte entrega só `onBluetoothStateChanged(false)`, sem `onDisconnected` para o link
+  ou a conexão pendente (contrato B, [`transporte-android.md`](transporte-android.md#eventos-de-conexão)), e a sessão
+  vai direto para `BLUETOOTH_OFF` (`state` 4). Se o Bluetooth já está desligado quando o grafo nasce, o `CoreGraph`
+  pede ao transporte o mesmo evento (`reportBluetoothOffAtStartup`), porque o `BluetoothStateReceiver` só avisa
+  transições: sem isso a sessão ficaria em `DISCONNECTED` e o JS veria 0. O evento é assíncrono, então o primeiro
+  `initialize()` pode ainda reenviar 0; o 4 chega depois pela transição (o último evento é sempre o estado atual) e
+  qualquer `emitCurrentState` seguinte já reenvia 4.
 
 ### Reconexão automática
 
@@ -119,7 +126,8 @@ Todo comando que fala com o relógio segue o mesmo caminho:
 | `isConnected()` | `state` em `READY`/`SYNCING` | — | na hora |
 
 Eventos espontâneos (o relógio avisa que os dados mudaram, `requestId = -1`) saem sem Promise: `onPedometer`;
-`onDeviceInfo` espontâneo emite `onDeviceInfo` e `onFirmwareInfo`.
+`onDeviceInfo` espontâneo emite `onDeviceInfo` e `onFirmwareInfo`. O fitGPS 0.2.1 não mandou nenhum aviso desses na
+gravação de 2026-10-29: passos ao vivo precisam de `refreshSteps()` periódico ([`pendencias.md`](pendencias.md)).
 
 ### `deletedSavedData`
 

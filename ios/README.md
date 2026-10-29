@@ -5,8 +5,11 @@ e este README. Plano detalhado e armadilhas em [`../docs/ios-pendente.md`](../do
 
 ## O que existe
 
-- `react-native-technos-core-next.podspec`: iOS 16, `source_files "ios/**/*.{h,m,mm,swift}"`,
+- `react-native-technos-core-next.podspec`: iOS 15.1, `source_files "ios/**/*.{h,m,mm,swift}"`,
   `vendored_frameworks "ios/Frameworks/TechnosWatchProtocol.xcframework"`, `install_modules_dependencies`.
+  O 15.1 é o mínimo do RN 0.81 (`react-native/scripts/cocoapods/helpers.rb:83-85`) e o
+  `IPHONEOS_DEPLOYMENT_TARGET` do `example/ios`; um pod 16.0 seria recusado pelo `pod install` do example. O app
+  Mormaii está em 16.0 (`GTE-Mormaii/ios/Podfile:68`), o que um pod 15.1 aceita.
 - O XCFramework do Repo 1 (estático, prefixo ObjC `TWP`), gerado assim:
   ```
   cd ../technos-watch-protocol

@@ -77,6 +77,9 @@ class CoreGraph private constructor(context: Context) {
 			)
 		}
 		bluetoothReceiver.register()
+		// O receiver só avisa transições: com o Bluetooth já desligado na partida, a sessão ficaria em DISCONNECTED e o
+		// JS veria 0, não 4. Vem depois do register() para um STATE_ON no meio não se perder (KDoc do método).
+		transport.reportBluetoothOffAtStartup()
 		logger.log(LogLevel.INFO, "CoreGraph/init", "Native graph created")
 	}
 

@@ -90,7 +90,14 @@ class FrameRecorder(
 		/** ~50 mil pacotes cabem com folga em memória (cada linha tem ~150 bytes) e cobrem várias sincronizações. */
 		const val DEFAULT_MAX_PACKETS = 50_000
 
-		/** `xxx` (minúsculo) dá `+00:00` em UTC; o `XXX` daria `Z`, e o cabeçalho de fixture exige offset numérico (Repo 1, `docs/fixtures.md`). */
-		private val ISO: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ssxxx")
+		/**
+		 * Milissegundos porque o `recordedAt` é o instante do `atMs` 0: truncado no segundo, o da gravação do fitGPS saiu
+		 * `08:14:10-03:00` para um primeiro pacote em `08:14:10.933` (cabeçalho da fixture
+		 * `technos-watch-protocol/fixtures/real/fitgps/0.2.1/pair-commands-bt-reconnect-sync.jsonl`, igual ao export
+		 * `frames-20261029-083254.jsonl`, e o primeiro `Frame/` do log, linha 23, ts 1793272450933). `xxx` (minúsculo)
+		 * dá `+00:00` em UTC; o `XXX` daria `Z`, e o cabeçalho de fixture exige offset numérico (Repo 1,
+		 * `docs/fixtures.md`). O `Instant.parse` do replay aceita a fração.
+		 */
+		private val ISO: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSSxxx")
 	}
 }

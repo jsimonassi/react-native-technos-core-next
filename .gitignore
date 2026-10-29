@@ -1,0 +1,18 @@
+node_modules/
+example/node_modules/
+android/build/
+android/.gradle/
+android/.cxx/
+example/android/build/
+example/android/app/build/
+example/android/.gradle/
+example/ios/Pods/
+example/ios/build/
+.DS_Store
+*.iml
+.idea/
+local.properties
+ios/Frameworks/
+# Exports do exemplo (adb pull): o logs-*.jsonl tem o MAC do relógio e nunca vai para o git.
+corenext-export/
+logs-*.jsonl

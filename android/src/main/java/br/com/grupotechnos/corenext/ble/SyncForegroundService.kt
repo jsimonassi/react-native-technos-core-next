@@ -59,6 +59,8 @@ class SyncForegroundService : Service() {
 		synchronized(lock) {
 			if (instance === this) instance = null
 		}
+		// Sem esta linha o log prova só o pedido de parada (`stop()`), não que o serviço desceu de fato.
+		logger?.log(LogLevel.INFO, "SyncForegroundService/onDestroy", "Foreground service stopped")
 		super.onDestroy()
 	}
 

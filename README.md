@@ -6,8 +6,11 @@ domínio, da sessão e dos codecs; esta biblioteca só traduz JS ↔ sessão e �
 local e do log.
 
 **Estado: PoC.** Família SMA (Mormaii fitGPS), só Android, RN 0.81 com a nova arquitetura. O iOS ainda não existe
-(ver [`docs/ios-pendente.md`](docs/ios-pendente.md)); importar a biblioteca no iOS lança erro. Nada foi validado
-com o relógio real ainda: o checklist está em [`example/README.md`](example/README.md#checklist-de-aceite-com-o-fitgps).
+(ver [`docs/ios-pendente.md`](docs/ios-pendente.md)); importar a biblioteca no iOS lança erro. Uma primeira sessão
+com o relógio real (fitGPS 0.2.1, 2026-10-29) pareou, sincronizou e reconectou depois de desligar e religar o
+Bluetooth ([o que ela mostrou](docs/transporte-android.md#o-que-a-gravação-do-fitgps-mostrou)); o checklist completo
+([`example/README.md`](example/README.md#checklist-de-aceite-com-o-fitgps)) ainda não foi feito. O que falta está em
+[`docs/pendencias.md`](docs/pendencias.md).
 
 ## Início rápido
 
@@ -54,7 +57,7 @@ android/             # módulo Android (Kotlin): NativeCoreNextModule, CoreGraph
   .../corenext/log/      # anel de log, Logcat, onLog e gravação de frames para fixture
 ios/                 # só o README do que falta; o podspec fica na raiz
 example/             # app RN 0.81.4 com as abas Conexão, Dados e Log
-docs/                # arquitetura, API JS, transporte Android, iOS pendente
+docs/                # arquitetura, API JS, transporte Android, iOS pendente, pendências
 ```
 
 Cada pasta de `android/.../corenext/` tem um `README.md` com o que faz, o que não faz e de quem depende.
@@ -68,6 +71,7 @@ Cada pasta de `android/.../corenext/` tem um `README.md` com o que faz, o que n�
 | [`docs/api-js.md`](docs/api-js.md) | Cada método e evento, com payload de exemplo e o equivalente no Core atual |
 | [`docs/transporte-android.md`](docs/transporte-android.md) | Fila GATT, autoConnect, MTU, CCCD, write type, Bluetooth on/off e limites conhecidos |
 | [`docs/ios-pendente.md`](docs/ios-pendente.md) | O que falta para o iOS e as armadilhas já mapeadas |
+| [`docs/pendencias.md`](docs/pendencias.md) | Pendências do host e da integração com o app Mormaii (sync de 59 s contra o watchdog de 50 s, polling de passos, `deviceId`, eventos sem equivalente) |
 | [`example/README.md`](example/README.md) | Rodar o exemplo, permissões, exportar o log, checklist com o relógio |
 | [`src/README.md`](src/README.md) | Arquivos da camada JS |
 | [`ios/README.md`](ios/README.md) | Como o XCFramework do Repo 1 entra no pod (futuro) |

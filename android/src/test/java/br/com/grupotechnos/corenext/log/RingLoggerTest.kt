@@ -65,6 +65,8 @@ class RingLoggerTest {
 		recorder.firmware = "1.2.3"
 		recorder.deviceName = "Mormaii_fitGPS"
 		recorder.mtu = 247
+		// Primeiro pacote fora do segundo cheio: o recordedAt tem que guardar os milissegundos dele (atMs 0).
+		now += 933
 		logger.frame(FrameDirection.TX, "6e400002-b5a3-f393-e0a9-e50e24dcca9e", byteArrayOf(0xAB.toByte()), "x")
 		now += 120
 		logger.frame(FrameDirection.RX, "6e400003-b5a3-f393-e0a9-e50e24dcca9e", byteArrayOf(0x01, 0x02), "")
@@ -78,7 +80,7 @@ class RingLoggerTest {
 		assertEquals("1.2.3", header.getString("firmware"))
 		assertEquals(247, header.getInt("mtu"))
 		assertEquals("android", header.getString("platform"))
-		assertEquals("2026-10-28T14:30:00-03:00", header.getString("recordedAt"))
+		assertEquals("2026-10-28T14:30:00.933-03:00", header.getString("recordedAt"))
 		assertEquals("America/Sao_Paulo", header.getString("timeZone"))
 		val second = JSONObject(lines[2])
 		assertEquals("RX", second.getString("dir"))
@@ -91,7 +93,7 @@ class RingLoggerTest {
 		val utc = FrameRecorder(nowMillis = { now }, zone = { ZoneId.of("UTC") })
 		val file = File(folder.root, "utc/frames.jsonl")
 		utc.writeTo(file)
-		assertEquals("2026-10-28T17:30:00+00:00", JSONObject(file.readLines()[0]).getString("recordedAt"))
+		assertEquals("2026-10-28T17:30:00.000+00:00", JSONObject(file.readLines()[0]).getString("recordedAt"))
 	}
 
 	@Test

@@ -4,7 +4,8 @@ Como o `ble/AndroidGattTransport` implementa o `Transport` do Repo 1 e o que fic
 serviço em primeiro plano). A sessão decide *o que* fazer; este documento descreve *como* o Android executa.
 
 Fontes citadas: SDK SMA Android decompilada (`com/bestmafen/...`, só leitura), Core atual
-(`TechnosWareCore/android/...`).
+(`TechnosWareCore/android/...`) e a gravação com o fitGPS 0.2.1 de 2026-10-29
+([O que a gravação do fitGPS mostrou](#o-que-a-gravação-do-fitgps-mostrou)).
 
 ## Thread única
 
@@ -25,7 +26,8 @@ O Android aceita uma operação GATT pendente por link. Uma segunda chamada ante
 - Timeout de 4 s por operação → status `GattStatus.TIMEOUT` (-1). A descoberta de serviços tem 15 s: são vários
   round-trips ATT e no primeiro contato 4 s é pouco.
 - Queda do link: `failAll(GattStatus.NOT_CONNECTED)` termina a atual e as pendentes, cada uma exatamente uma vez,
-  antes do `onDisconnected`. Assim a regra "toda operação com `requestId` termina com um evento" vale também na queda.
+  antes do `onDisconnected` (quando há um; com o Bluetooth desligado não há). Assim a regra "toda operação com
+  `requestId` termina com um evento" vale também na queda.
 
 Teste: `android/src/test/.../ble/GattQueueTest.kt`.
 
@@ -77,15 +79,33 @@ tentativas deixa callbacks atrasados de uma tentativa caírem na seguinte.
 
 ### Eventos de conexão
 
-- Para cada `onConnected` sai exatamente um `onDisconnected` (queda, `disconnect()`, `connect` que substitui o link,
-  Bluetooth desligado).
+Quem decide quando sai `onConnected`/`onDisconnected` é o `ble/LinkLifecycle` (Kotlin puro, `LinkLifecycleTest` na
+JVM); o `AndroidGattTransport` só cuida dos objetos do Android e chama um método dele por acontecimento.
+
+- Para cada `onConnected` sai exatamente um `onDisconnected` (queda, `disconnect()`, `connect` que substitui o link),
+  **exceto com o Bluetooth desligado**, que não emite nenhum (abaixo).
 - `disconnect()` termina com exatamente um `onDisconnected(0, ...)` quando havia link aberto ou conexão pendente
-  (inclusive re-arme agendado), e com nenhum quando não havia: depois de outro `disconnect()`, de uma conexão
-  direta que já falhou com evento ou de uma queda de link (que já saiu como `onDisconnected`). É o contrato do `Transport.disconnect` (ADR 12 do Repo 1); a sessão conta essas
+  (inclusive re-arme agendado), e com nenhum quando não havia: depois de outro `disconnect()`, de uma conexão direta
+  que já falhou com evento, de uma queda de link (que já saiu como `onDisconnected`), de um `connect` recusado na hora
+  ou do Bluetooth desligado. É o contrato do `Transport.disconnect` (ADR 12 do Repo 1); a sessão conta essas
   respostas, e um evento a mais derrubaria a tentativa seguinte.
 - Falha de uma conexão *pendente* que nunca conectou não gera evento (só log e re-arme): a sessão já está em
   `RECONNECTING` e não há o que avisar.
-- `connect` com Bluetooth desligado, sem `BLUETOOTH_CONNECT` ou com MAC inválido termina com `onDisconnected` na hora.
+- `connect` com Bluetooth desligado, sem `BLUETOOTH_CONNECT` ou com MAC inválido fecha o que houver, termina com
+  exatamente um `onDisconnected` na hora e deixa o transporte parado: um `disconnect()` seguinte não emite nada.
+- **Bluetooth desligado ("contrato B").** O transporte entrega `onBluetoothStateChanged(false)` e **nenhum**
+  `onDisconnected` para o link aberto ou a conexão pendente que isso derrubou, nem antes nem depois. Depois disso,
+  `disconnect()` e os callbacks atrasados do GATT fechado (geração antiga) não emitem nada até um `connect()` novo. Um
+  `onDisconnected` que já tinha saído antes do `onBluetoothStateChanged(false)` (a pilha avisou a queda do link antes do
+  broadcast `STATE_OFF`) é uma queda comum, tratada como sempre. Do lado da sessão (Repo 1), o Bluetooth desligado zera
+  a contagem de desconexões esperadas da ADR 12 e marca o transporte inativo; o `disconnect()` de limpeza que ela ainda
+  chame não conta.
+  Por quê: é o que o CoreBluetooth faz no iOS (`poweredOff` sem `didDisconnectPeripheral`) e o que o `FakeTransport` do
+  Repo 1 já fazia; e a gravação do fitGPS mostrou o Android, antes desta regra, entregando três `onDisconnected` para um
+  link só ao desligar o Bluetooth: o do link, o do `connect()` que a sessão fez com o adaptador já desligado e o do
+  `disconnect()` seguinte (log `logs-20261029-083254.jsonl`, linhas 101, 109 e 110, ts 1793272958357, 1793272958524 e
+  1793272958525). Com a contagem da ADR 12, essa ambiguidade pode fazer a sessão engolir uma queda real e ficar presa
+  em `RECONNECTING`.
 
 ### Sem `refresh()`
 
@@ -99,17 +119,25 @@ serviços que acelera a reconexão.
   minúsculo (`GattUuid.normalize`) e as flags `canRead` (`PROPERTY_READ`), `canWrite` (`PROPERTY_WRITE`),
   `canWriteWithoutResponse` (`PROPERTY_WRITE_NO_RESPONSE`), `canNotify` (`PROPERTY_NOTIFY` ou `PROPERTY_INDICATE`).
   A escolha entre `FF60/FF61/FF62` e o NUS `6E400001/02/03` é da sessão, pela ordem de `gattCandidates` do perfil.
+  O fitGPS 0.2.1 expõe só o NUS: a descoberta trouxe `1800`, `1801`, `6e400001` e `180a`, sem `FF60`, nas duas
+  conexões gravadas (log `logs-20261029-083254.jsonl`, linhas 14 e 119, ts 1793272450855 e 1793273190432).
 - `enableNotifications(service, ch)` → `setCharacteristicNotification(ch, true)` e escrita de `01 00`
   (`ENABLE_NOTIFICATION_VALUE`) no descritor `0x2902`, como a SDK (`SmaMessenger.java:62-69`). Se a characteristic só
   tiver `INDICATE`, escreve `02 00`. Sem descritor `0x2902` → `GattStatus.NOT_FOUND`.
 - `requestMtu(mtu)` → `onMtuChanged(requestId, mtuEfetivo, status)`. A sessão pede 247 (`Quirks.requestMtu`); a SDK
   pede 512 (`SmaManager.java:204`). Mudança de MTU sem pedido pendente só atualiza o valor efetivo (usado no cabeçalho
-  do fixture). Não verificado no relógio: qual MTU o fitGPS aceita.
+  do fixture). **Visto no fitGPS 0.2.1:** o pedido de 247 voltou com MTU efetivo **23 e status 0**, ou seja, foi uma
+  negociação bem-sucedida para 23, não o caminho de falha da ADR 5 do Repo 1 (log `logs-20261029-083254.jsonl`,
+  linhas 17 e 122, ts 1793272450905 e 1793273190489; cabeçalho `"mtu":23` da fixture
+  `technos-watch-protocol/fixtures/real/fitgps/0.2.1/pair-commands-bt-reconnect-sync.jsonl`). Todo pacote da gravação tem no máximo 20 bytes.
 
 ## Escrita
 
-- O tipo de escrita vem da sessão: `WITH_RESPONSE` → `WRITE_TYPE_DEFAULT`, `WITHOUT_RESPONSE` →
-  `WRITE_TYPE_NO_RESPONSE`. A SDK nunca troca o tipo e usa o padrão da characteristic (`SmaMessenger.java:118-119`).
+- A sessão sempre pede `WITH_RESPONSE` (`SmaDriver.sendFrame` e `SmaDriver.writeControl` do Repo 1), sem olhar
+  as propriedades descobertas; o transporte o traduz para `WRITE_TYPE_DEFAULT`. `WITHOUT_RESPONSE` →
+  `WRITE_TYPE_NO_RESPONSE` só está mapeado porque o contrato do `Transport` o permite. A SDK nunca define o tipo e herda
+  o inicial da characteristic (`SmaMessenger.java:118-119`); as propriedades da `6e400002` não ficam no log, então não
+  se sabe qual tipo a SDK usa de fato no fitGPS.
 - API 33+: `writeCharacteristic(ch, value, writeType)` (devolve código; o array é copiado pela pilha).
   Abaixo: `ch.writeType = ...; ch.value = ...; writeCharacteristic(ch)`. O mesmo para o descritor.
 - O Android chama `onCharacteristicWrite` também para `WRITE_TYPE_NO_RESPONSE`, então a fila avança igual nos dois
@@ -121,7 +149,10 @@ serviços que acelera a reconexão.
 `onCharacteristicChanged` → `onNotification(uuid, value.copyOf())`, uma por notificação, na ordem de chegada. A cópia
 importa abaixo da API 33, onde o array é o buffer interno da characteristic e é reescrito na notificação seguinte.
 Na API 33+ só a sobrecarga nova (com `value`) é tratada; a antiga retorna cedo para não entregar duas vezes.
-A remontagem de frames (L1 de 8 bytes em notificação própria, `SmaManager.java:506-528`) é da sessão.
+A remontagem de frames (L1 de 8 bytes em notificação própria, `SmaManager.java:506-528`) é da sessão. No fitGPS 0.2.1
+com MTU 23, o cabeçalho L1 de 8 bytes chegou sempre sozinho numa notificação (79 de 79 frames RX de dados na fixture
+`technos-watch-protocol/fixtures/real/fitgps/0.2.1/pair-commands-bt-reconnect-sync.jsonl`, ex.: `AB0000061B000000` em atMs 2424 e o resto do BIND_BACK em
+2426), mesmo quando o frame inteiro caberia em 20 bytes.
 
 ## Scan (`BleScanner`)
 
@@ -130,9 +161,11 @@ A remontagem de frames (L1 de 8 bytes em notificação própria, `SmaManager.jav
 - `SCAN_MODE_LOW_LATENCY`, 7 s (`SMAService.java:625-635`). Um `onScannedDevice` por endereço por scan.
 - Cada resultado passa por `DeviceRegistry.identify(nome, serviços anunciados)`. Nome: `scanRecord.deviceName`, e
   `device.name` se o anúncio não trouxer nome.
-- **Pergunta aberta (risco 1 do plano):** o fitGPS anuncia o NUS? Cada endereço visto gera uma linha `DEBUG`
-  `BleScanner/onScanResult ... advertisedServices=[...]`. Se aparecer um resultado sem nome com o NUS anunciado, a
-  resposta é "sim" e o filtro de serviço passa a ter valor.
+- **O fitGPS 0.2.1 não anuncia o NUS** (era o risco 1 do plano). O anúncio lista `180f`, `180a` e
+  `00000001-0000-1000-8000-00805f9b34fb`, sem o NUS e sem `FF60` (linha `BleScanner/onScanResult`,
+  `logs-20261029-083254.jsonl` linha 6, ts 1793272444786). Então só o filtro por nome acha o relógio; o filtro de
+  serviço fica por compatibilidade com outro firmware que anuncie. Cada endereço visto continua gerando essa linha
+  `DEBUG` com `advertisedServices=[...]`, para conferir em outro firmware.
 - O Android limita a 5 inícios de scan em 30 s por app; acima disso o scan "começa" e não devolve nada (só um aviso no
   Logcat do sistema). Tocar `Scan` repetidamente no exemplo pode cair nisso.
 
@@ -141,8 +174,16 @@ A remontagem de frames (L1 de 8 bytes em notificação própria, `SmaManager.jav
 `BluetoothStateReceiver` (registrado uma vez por processo) entrega só `STATE_ON` e `STATE_OFF`.
 
 - **Desligou:** o scanner para; o transporte cancela re-arme e scan de reconexão, falha as operações pendentes, fecha
-  o GATT, entrega `onDisconnected` (se havia link) e depois `onBluetoothStateChanged(false)`, para o último estado da
-  sessão ser `BLUETOOTH_OFF` (`deviceConnectStates` 4).
+  o GATT, fica parado e entrega só `onBluetoothStateChanged(false)`, **sem** `onDisconnected` para o link ou a conexão
+  pendente (contrato B, em [Eventos de conexão](#eventos-de-conexão)). A sessão vai direto para `BLUETOOTH_OFF`
+  (`deviceConnectStates` 4), sem passar por `RECONNECTING` nem tentar um `connect()` para o adaptador desligado.
+- **Já desligado na partida:** o receiver só avisa transições, então o `CoreGraph`, ao ser criado, chama
+  `AndroidGattTransport.reportBluetoothOffAtStartup()` depois de registrar o receiver. Se o adaptador está desligado
+  (lido na thread do GATT), o transporte entrega o mesmo `onBluetoothStateChanged(false)` e a sessão sai de
+  `DISCONNECTED` para `BLUETOOTH_OFF`; o JS vê o estado 4 pelo evento da transição (o primeiro `initialize()` pode ter
+  reenviado 0 antes dele) e por qualquer `emitCurrentState` seguinte.
+  Se o Bluetooth ligar no meio, ou a leitura já o vê ligado e não sai nada, ou o `STATE_ON` do receiver entra na fila
+  depois do `false`: o último estado da sessão é o certo.
 - **Ligou:** o transporte entrega `onBluetoothStateChanged(true)` e, na mesma thread, logo depois, o `CoreGraph` chama
   `reconnectIfPaired` (ordem garantida: o `reconnect` entra na fila da sessão depois do evento de Bluetooth).
 
@@ -152,6 +193,8 @@ A remontagem de frames (L1 de 8 bytes em notificação própria, `SmaManager.jav
 
 - Sobe em `onSyncStarted`; desce em `onSyncFinished`, no `onError` do sync ou se a sessão sair de `READY`/`SYNCING`.
 - Notificação de importância baixa no canal `corenext.sync`.
+- O log registra a subida (`SyncForegroundService/onStartCommand`) e a descida de fato
+  (`SyncForegroundService/onDestroy`), não só o pedido de parada (`CoreSessionListener/stopSyncService`).
 - `onStartCommand` chama `startForeground` antes de qualquer coisa: um `startForegroundService` sem `startForeground` em
   poucos segundos derruba o app, mesmo que o sync já tenha acabado. Por isso `stop()` não usa `stopService`; ele marca
   "não precisa mais" e o próprio serviço se encerra depois de `startForeground`.
@@ -181,26 +224,70 @@ scan não devolve nada sem localização), `BLUETOOTH_CONNECT`, `FOREGROUND_SERV
 - **Processo morto.** Sem FGS permanente, o Android pode matar o processo em segundo plano (risco 10).
 - **minSdk 26.** O transporte usa `connectGatt` com `Handler` (API 26) e `java.time`; um app com minSdk menor não
   consome esta biblioteca.
-- **MTU e write type reais do fitGPS** ainda não verificados com o relógio (E3).
+- **Propriedades da `6e400002` não logadas.** O MTU real do fitGPS já é conhecido (23, abaixo); se a characteristic
+  aceita `WRITE_NO_RESPONSE` não, porque o transporte não loga as propriedades. Só importa se a sessão um dia escrever
+  sem resposta.
+
+## O que a gravação do fitGPS mostrou
+
+Uma sessão com o fitGPS (firmware 0.2.1) e um Android, em 2026-10-29, com dois arquivos exportados:
+
+- **Pacotes**: o export `frames-20261029-083254.jsonl` (o anterior, `frames-20261029-082857.jsonl`, é prefixo exato
+  dele), versionado no Repo 1 como
+  `technos-watch-protocol/fixtures/real/fitgps/0.2.1/pair-commands-bt-reconnect-sync.jsonl`. Os dois são iguais byte a
+  byte, então todo `atMs` citado aqui vale na fixture. Na tabela, "fixture".
+- **Log**: `logs-20261029-083254.jsonl`. Tem o MAC do relógio e nunca vai para o git, como a pasta `corenext-export/`
+  em que os dois exports ficaram, então só existe na máquina de quem gravou. Por isso cada citação dele traz a linha e o
+  `ts`, a convenção do `docs/fixtures.md` do Repo 1.
+
+Duas conexões: BIND + LOGIN (atMs 0 a 123713) e, depois de 230 s com o Bluetooth desligado, reconexão só com LOGIN
+(atMs 739559 a 1090678).
+
+| Ponto | Visto | Fonte |
+|---|---|---|
+| GATT | Só o NUS: `1800`, `1801`, `6e400001`, `180a`; sem `FF60` | log, linhas 14 e 119 (ts 1793272450855 e 1793273190432) |
+| Anúncio | `180f`, `180a`, `00000001-0000-1000-8000-00805f9b34fb`; sem NUS, então só o filtro por nome casa | log, linha 6 (ts 1793272444786) |
+| MTU | 247 pedido, 23 negociado com status 0; todo pacote com 20 bytes ou menos | log, linhas 17 e 122 (ts 1793272450905 e 1793273190489); fixture, cabeçalho |
+| Notificações | O L1 de 8 bytes chega sempre sozinho (79 de 79 frames RX de dados) | fixture, ex.: atMs 2424 e 2426 |
+| Integridade | 161 frames de dados, 0 CRC inválido, 0 NACK, 0 retransmissão | fixture |
+| `seq` | O relógio mantém o próprio `seq` de RX entre conexões (0 a 7, depois 8 a 78); o nosso TX recomeça em 1 a cada conexão | fixture, atMs 739795 (`AB00000693000008`) |
+| BIND | ACK do relógio em atMs 194 e BIND_BACK em 2424: cerca de 2,2 s, muito abaixo dos 60 s da sessão. O LOGIN respondeu 2 ms depois do ACK (atMs 2804 e 2806) | fixture |
+| Avisos espontâneos | Nenhum frame sem pedido (nem `02/70`, nem `04/62`), inclusive em cerca de 384 s e 234 s parados e conectados | fixture |
+| Ritmo do sync | `syncHistory` levou 59,3 s; cada uma das 64 páginas de sono (`05/45`, atMs 1032538 a 1090312) levou cerca de 900 ms: cerca de 362 ms do pedido ao ACK do relógio e cerca de 358 ms do nosso ACK ao pedido seguinte | fixture; log, linhas 193 e 1031 (ts 1793273482717 e 1793273542014) |
+| Bluetooth desligado | Antes do contrato B, três `onDisconnected` para um link só | log, linhas 101, 109 e 110 (ts 1793272958357, 1793272958524 e 1793272958525) |
+
+Hipóteses do protocolo que a gravação confirmou ou derrubou (H1 a H9) ficam na tabela do `docs/protocolo-sma.md` do
+Repo 1; o que falta testar com o relógio está no `docs/pendencias.md` de lá.
 
 ## Gravar frames e puxar do aparelho
 
-1. No exemplo, aba Log: `Clear` (começa uma gravação nova), depois parear / ler bateria / sincronizar.
+1. No exemplo, aba Log: `Clear` (começa uma gravação nova), depois parear / ler bateria / sincronizar. Um cenário
+   por gravação.
 2. `Export` chama `exportLogs()`, que grava em `getExternalFilesDir(null)/corenext/` (o `Share` da mesma aba só manda
    as últimas entradas do log como texto, sem arquivo):
    `frames-<yyyyMMdd-HHmmss>.jsonl` (formato `FrameJsonl` do Repo 1: cabeçalho + um pacote GATT por linha) e
-   `logs-<yyyyMMdd-HHmmss>.jsonl` (o anel de log). Devolve o caminho do arquivo de frames.
+   `logs-<yyyyMMdd-HHmmss>.jsonl` (o anel de log). Devolve o caminho do arquivo de frames. O `recordedAt` do cabeçalho
+   é o instante do primeiro pacote (atMs 0), no formato `yyyy-MM-dd'T'HH:mm:ss.SSSxxx`, com milissegundos e offset
+   numérico (ex.: `2026-10-29T08:14:10.933-03:00`).
 3. Sem root:
    ```
    adb pull /sdcard/Android/data/br.com.grupotechnos.corenext.example/files/corenext/ ./corenext-export
    ```
-4. Copiar o `frames-*.jsonl` para `technos-watch-protocol/fixtures/real/fitgps/<firmware>/<cenário>.jsonl`, com um
-   nome que descreva o roteiro (ex.: `pair-battery-version.jsonl`). É a pasta que o `RealFixturesReplayTest` do Repo 1
-   lê; o roteiro de gravação e as regras do replay estão em
+4. Copiar **só o `frames-*.jsonl` mais recente** do cenário para
+   `technos-watch-protocol/fixtures/real/fitgps/<fw>/<cenário>.jsonl` (`<fw>` como `0.2.1`, `<cenário>` em kebab-case
+   descrevendo o roteiro, ex.: `pair-battery-version.jsonl`). É a pasta que o `RealFixturesReplayTest` do Repo 1 lê; o
+   roteiro de gravação e as regras do replay estão em
    [`docs/fixtures.md`](../../technos-watch-protocol/docs/fixtures.md), seções 2 (pastas) e 3.1 (como gravar).
+   - **Exports são cumulativos.** Cada `Export` grava tudo desde o último `Clear`, então um export anterior do mesmo
+     cenário é prefixo exato do seguinte (`frames-20261029-082857.jsonl` é prefixo de `frames-20261029-083254.jsonl`).
+     Versionar os dois duplicaria o replay.
+   - **Nunca versionar `logs-*.jsonl`**: o log tem o MAC do relógio. O arquivo de frames não tem.
+   - Um arquivo pode ter uma reconexão no meio (Bluetooth desligado e religado, LOGIN de novo): o harness de replay do
+     Repo 1 reproduz isso.
 
 A gravação fica em memória até o `exportLogs()` (o cabeçalho precisa de firmware e MTU, conhecidos só depois do
-handshake). Limite de 50 mil pacotes; ao encher, para de gravar com um `WARN`.
+handshake). Limite de 50 mil pacotes; ao encher, para de gravar com um `WARN`. `Clear` apaga o anel e a gravação:
+exporte antes de cada `Clear` (`RingLogger.kt:63-66`).
 
 Para comparar com o app Mormaii atual, use o log HCI do Android (Opções do desenvolvedor → "Ativar registro de
 espionagem HCI Bluetooth"), `adb bugreport` e o Wireshark com filtro `btatt`; o script `hci2jsonl.py` do Repo 1

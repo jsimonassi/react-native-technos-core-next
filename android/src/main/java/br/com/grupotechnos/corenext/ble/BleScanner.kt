@@ -20,8 +20,9 @@ import br.com.grupotechnos.watch.protocol.transport.GattUuid
  * Scan de relógios suportados. Fica fora do `Transport`: a sessão não sabe de scan, só de endereço.
  *
  * - Filtros (OU): nome de advertising de cada perfil (`Mormaii_fitGPS`, o filtro seguro, igual ao Core atual em
- *   `SMAService.java:505-526`) e o serviço de cada `GattCandidate` (otimização: ainda não se sabe se o fitGPS
- *   anuncia o NUS; os UUIDs anunciados vão para o log para responder isso, risco 1 do plano).
+ *   `SMAService.java:505-526`) e o serviço de cada `GattCandidate`. O fitGPS 0.2.1 não anuncia o NUS (anúncio com
+ *   `180f`, `180a` e `00000001-…`, `logs-20261029-083254.jsonl` linha 6, ts 1793272444786), então é o filtro de
+ *   nome que o acha; o de serviço fica para outro firmware que anuncie. Os UUIDs anunciados continuam indo para o log.
  * - `SCAN_MODE_LOW_LATENCY` por [SCAN_DURATION_MS] (7 s, o mesmo do Core atual, `SMAService.java:625-635`).
  * - Cada resultado passa por `DeviceRegistry.identify`; só perfis conhecidos viram [onDevice], uma vez por endereço
  *   por scan (o Core atual emite a cada anúncio).

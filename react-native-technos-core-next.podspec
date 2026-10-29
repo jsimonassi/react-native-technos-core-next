@@ -11,7 +11,9 @@ Pod::Spec.new do |s|
 	s.homepage = package["homepage"] || "https://example.invalid/react-native-technos-core-next"
 	s.license = package["license"]
 	s.authors = package["author"] || "Grupo Technos"
-	s.platforms = { :ios => "16.0" }
+	# 15.1 é o mínimo do RN 0.81 (`react-native/scripts/cocoapods/helpers.rb:83-85`) e o deployment target do
+	# example; com 16.0 o `pod install` do example recusaria este pod. O app Mormaii (16.0) aceita um pod 15.1.
+	s.platforms = { :ios => "15.1" }
 	# Consumido por :path no Podfile durante a PoC; não há repositório remoto publicado.
 	s.source = { :git => "https://example.invalid/react-native-technos-core-next.git", :tag => "v#{s.version}" }
 

@@ -80,8 +80,15 @@ que o nativo já tinha com `getLogs`). Filtro por texto (tag, mensagem, hex), n�
    Se o caminho mostrado começar com `/data/user/0/` (aparelho sem armazenamento externo), use o comando `run-as`
    que o app mostra: `adb pull` não lê a área interna do app sem root.
 4. A gravação de frames vira fixture real no Repo 1, em
-   `technos-watch-protocol/fixtures/real/fitgps/<firmware>/<cenário>.jsonl` (formato e nomes em `docs/fixtures.md`
-   do Repo 1). Dê `Clear` antes de cada cenário para a gravação começar limpa.
+   `technos-watch-protocol/fixtures/real/fitgps/<fw>/<cenário>.jsonl` (ex.: `fitgps/0.2.1/pair-battery-version.jsonl`;
+   formato e nomes em `docs/fixtures.md` do Repo 1). Um cenário por gravação: `Export` antes de cada `Clear` (o `Clear`
+   apaga o anel e a gravação), e `Clear` antes do cenário seguinte.
+   - Copie **só o `frames-*.jsonl` mais recente** de cada cenário. Os exports são cumulativos: cada um traz tudo desde
+     o último `Clear`, e o anterior é prefixo exato dele (na gravação de 2026-10-29, `frames-20261029-082857.jsonl` é
+     prefixo de `frames-20261029-083254.jsonl`).
+   - **Nunca** versione `logs-*.jsonl`: o log tem o MAC do relógio. O arquivo de frames não tem.
+   - Uma reconexão no meio do cenário (Bluetooth desligado e religado) pode ficar no mesmo arquivo: o harness de
+     replay do Repo 1 a reproduz.
 
 `Share` manda as últimas 500 entradas do log como texto `.jsonl` (uma entrada por linha). O `Share` do React Native
 não anexa arquivo no Android, e um texto muito grande estoura o limite do Intent; para o arquivo completo, use
@@ -98,12 +105,18 @@ Critérios A3 a A8 do plano da PoC. Antes de começar: `Clear` na aba Log, reló
 | A5 | Mudar a hora do celular (Data e hora manual, alguns minutos à frente). Voltar ao app → cartão Hora → `Set time`. | "Hora enviada" com a hora do celular, e o relógio passa a mostrar a mesma hora. Volte a hora automática depois. |
 | A6 | Andar um pouco com o relógio. Dados → `Sync`. Depois `Passos`. | A barra chega a 100% e o status fica "Concluído". `onHistoryPedometer` lista até 4 dias (hoje e os 3 anteriores) e o total de hoje é o mesmo da tela de passos do relógio. `Refresh steps` na aba Conexão mostra o mesmo total. |
 | A7 | Conexão → `Disconnect`; depois `Reconnect last`; depois `Forget` e repetir A3. | `Disconnect` leva a `Desconectado (0)` e o app não reconecta sozinho. `Reconnect last` volta a `Conectado (2)` sem confirmação no relógio (só LOGIN). `Forget` leva a `Desconectado (0)` e "Último pareado: nenhum"; o novo pareamento funciona sem reinstalar o app. |
-| A8 | Aba Log durante A3 a A6, com "Hex dos frames" ligado. Depois `Export` e `Share`. | Cada pacote aparece como `TX`/`RX` com tag `Frame/<uuid>`, hex e resumo com `seq`, `cmd/key` e CRC ok/erro. `Export` mostra o caminho; o `adb pull` traz `frames-*.jsonl` com o cabeçalho e uma linha por pacote. `Share` abre o seletor com o `.jsonl` em texto. |
+| A8 | Aba Log durante A3 a A6, com "Hex dos frames" ligado. Depois `Export` e `Share`. | Cada **pacote** aparece como `TX`/`RX` com tag `Frame/<uuid>` e hex. Com MTU 23 o cabeçalho de RX chega sozinho numa notificação, então as linhas de pacote RX não trazem `cmd/key` nem CRC: são o resumo do `SmaDriver.describe` do Repo 1 seguido do tamanho do pacote (`ACK seq=<n> len=8`, `seq=<n> header len=<n> len=8`) ou só `len=<n> (cont.)` nos fragmentos seguintes (`RingLogger.frame`; ex.: `logs-20261029-083254.jsonl`). O resumo de cada **frame** remontado está nas linhas `SmaDriver/frame`: `TX seq=<n> <rótulo> len=<n>` e `RX seq=<n> <rótulo> len=<n> crc=ok`. `Export` mostra o caminho; o `adb pull` traz `frames-*.jsonl` com o cabeçalho e uma linha por pacote. `Share` abre o seletor com o `.jsonl` em texto. |
 | Exploratório | Dormir com o relógio. De manhã: `Sync` e depois `Sono`. | `onHistorySleep` com estágios, ou "NO_DATA". Nunca fica sem resposta: o botão volta ao normal em até 20 s. |
 
 A cada rodada, registre (para o `decisoes.md` do Repo 1): firmware do relógio, modelo e versão do Android, os UUIDs
-anunciados no scan (linha `BleScanner/onScanResult` do log, que responde se o fitGPS anuncia o NUS) e os arquivos
-exportados.
+anunciados no scan (linha `BleScanner/onScanResult` do log) e os arquivos exportados. No fitGPS 0.2.1 o anúncio traz
+`180f`, `180a` e `00000001-0000-1000-8000-00805f9b34fb`, sem o NUS (`logs-20261029-083254.jsonl`, linha 6, ts
+1793272444786): o
+relógio só aparece no scan pelo filtro de nome `Mormaii_fitGPS`. Vale conferir de novo em outro firmware.
+
+O que a primeira gravação com o relógio (2026-10-29) já respondeu está em
+[`../docs/transporte-android.md`](../docs/transporte-android.md#o-que-a-gravação-do-fitgps-mostrou); o que ainda
+falta testar no aparelho, no `docs/pendencias.md` do Repo 1.
 
 ## Verificações sem relógio
 
