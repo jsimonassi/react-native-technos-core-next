@@ -22,7 +22,7 @@ import TechnosWatchProtocol
 ///   (`RearmBackoff`, que explica o porquê no segundo plano). A exceção é o `CBError.peerRemovedPairingInformation` (o
 ///   iPhone guarda um vínculo que o relógio apagou, e só o usuário o remove nos Ajustes): vira
 ///   `GattStatus.PAIRING_REMOVED`, com WARN no log, e a conexão pendente termina com `onDisconnected`, como a direta
-///   (`LinkLifecycle.linkDown`; ADR 23 do Repo 1).
+///   (`LinkLifecycle.linkDown`; ADR 23 do Repo 1). A tradução vale só onde o contrato a põe (`linkStatus`).
 /// - `didDisconnectPeripheral` sem link aberto é o eco de um `cancelPeripheralConnection` (que o CoreBluetooth também
 ///   avisa) e é descartado.
 /// - **Contrato B**: `.poweredOff` (e `.unauthorized`, `.unsupported`, `.resetting`) para o transporte sem nenhum
@@ -635,17 +635,25 @@ final class CentralTransport: NSObject, HostTransport {
 		Int32(peripheral.maximumWriteValueLength(for: .withoutResponse)) + 3
 	}
 
-	/// Status para o `TransportEvents`: `SUCCESS` sem erro; `GattStatus.PAIRING_REMOVED` para o
-	/// `CBError.peerRemovedPairingInformation` (o iPhone guarda um vínculo que o relógio apagou; ADR 23 do Repo 1); senão o
-	/// código do `NSError`, ou `unknownErrorStatus` se for 0. O domínio é conferido porque o 14 do `CBATTErrorDomain` é
-	/// outro erro (`unlikelyError`).
+	/// Status para o `TransportEvents` de uma escrita ou leitura: `SUCCESS` sem erro; senão o código do `NSError`, ou
+	/// `unknownErrorStatus` se for 0. Um `peerRemovedPairingInformation` aqui fica 14: a sessão só trata o vínculo apagado
+	/// onde o contrato o põe (`linkStatus`).
 	static func status(_ error: Error?) -> Int32 {
 		guard let error else { return GattStatus.shared.SUCCESS }
-		let nsError = error as NSError
-		if nsError.domain == CBErrorDomain, nsError.code == CBError.Code.peerRemovedPairingInformation.rawValue {
+		let code = (error as NSError).code
+		return code == 0 ? unknownErrorStatus : Int32(truncatingIfNeeded: code)
+	}
+
+	/// Status de uma conexão que falhou ou caiu, da descoberta e do CCCD, os lugares onde a sessão trata o vínculo
+	/// apagado (`GattStatus.PAIRING_REMOVED`, ADR 23 do Repo 1): o `CBError.peerRemovedPairingInformation` (o iPhone
+	/// guarda um vínculo que o relógio apagou) vira `PAIRING_REMOVED`; o resto, como `status`. O domínio é conferido
+	/// porque o 14 do `CBATTErrorDomain` é outro erro (`unlikelyError`).
+	static func linkStatus(_ error: Error?) -> Int32 {
+		let removed = CBError.Code.peerRemovedPairingInformation.rawValue
+		if let nsError = error as NSError?, nsError.domain == CBErrorDomain, nsError.code == removed {
 			return GattStatus.shared.PAIRING_REMOVED
 		}
-		return nsError.code == 0 ? unknownErrorStatus : Int32(truncatingIfNeeded: nsError.code)
+		return status(error)
 	}
 
 	/// O que o usuário tem de fazer quando o status é `PAIRING_REMOVED`, para o WARN do log (o app não remove vínculos).
@@ -707,7 +715,7 @@ extension CentralTransport: CBCentralManagerDelegate {
 
 	func centralManager(_ central: CBCentralManager, didFailToConnect failed: CBPeripheral, error: Error?) {
 		guard isCurrent(failed) else { return }
-		let status = CentralTransport.status(error)
+		let status = CentralTransport.linkStatus(error)
 		log(LogLevel.warn, "didFailToConnect", "address=\(failed.identifier.uuidString) status=\(status) error=\(error?.localizedDescription ?? "nil")")
 		if status == GattStatus.shared.PAIRING_REMOVED {
 			log(LogLevel.warn, "didFailToConnect", CentralTransport.pairingRemovedHint)
@@ -734,7 +742,7 @@ extension CentralTransport: CBCentralManagerDelegate {
 			log(LogLevel.debug, "didDisconnectPeripheral", "Ignoring stale disconnect of \(disconnected.identifier.uuidString)")
 			return
 		}
-		let status = CentralTransport.status(error)
+		let status = CentralTransport.linkStatus(error)
 		log(LogLevel.info, "didDisconnectPeripheral", "address=\(disconnected.identifier.uuidString) status=\(status) error=\(error?.localizedDescription ?? "nil")")
 		if status == GattStatus.shared.PAIRING_REMOVED {
 			log(LogLevel.warn, "didDisconnectPeripheral", CentralTransport.pairingRemovedHint)
@@ -753,7 +761,7 @@ extension CentralTransport: CBPeripheralDelegate {
 	func peripheral(_ source: CBPeripheral, didDiscoverServices error: Error?) {
 		guard isCurrent(source), gattQueue.active?.kind == .discover else { return }
 		if let error {
-			gattQueue.complete(.discover, status: CentralTransport.status(error))
+			gattQueue.complete(.discover, status: CentralTransport.linkStatus(error))
 			return
 		}
 		let services = source.services ?? []
@@ -778,7 +786,7 @@ extension CentralTransport: CBPeripheralDelegate {
 
 	func peripheral(_ source: CBPeripheral, didUpdateNotificationStateFor characteristic: CBCharacteristic, error: Error?) {
 		guard isCurrent(source) else { return }
-		gattQueue.complete(.notify, status: CentralTransport.status(error))
+		gattQueue.complete(.notify, status: CentralTransport.linkStatus(error))
 	}
 
 	func peripheral(_ source: CBPeripheral, didWriteValueFor characteristic: CBCharacteristic, error: Error?) {

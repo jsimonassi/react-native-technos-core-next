@@ -81,9 +81,10 @@ export const errorCodes = {
 	 * O telefone guarda um vínculo Bluetooth que o relógio já apagou (o relógio foi pareado com outro telefone depois),
 	 * e o sistema recusa a conexão até o usuário esquecer o relógio nas configurações de Bluetooth do telefone (no
 	 * iPhone, Ajustes > Bluetooth > "Esquecer este dispositivo"); o app não consegue fazer isso. Sai em `pairDevice` e
-	 * `startPairingAttempt`, e com `requestId` -1 e `method` `null` quando a reconexão automática para por isso. O
-	 * nativo não tenta de novo sozinho. Hoje só o iOS detecta (`CBError.peerRemovedPairingInformation`; ADR 23 do
-	 * `technos-watch-protocol`).
+	 * `startPairingAttempt`, e com `method` `null` quando a reconexão automática para por isso: `requestId` -1 se a
+	 * sessão reconectava depois de uma queda, e um id interno se o nativo pediu a reconexão (`initialize`, volta ao
+	 * primeiro plano, Bluetooth religado). O nativo não repete a tentativa; tenta uma vez a cada um desses gatilhos.
+	 * Hoje só o iOS detecta (`CBError.peerRemovedPairingInformation`; ADR 23 do `technos-watch-protocol`).
 	 */
 	PAIRING_REMOVED: "PAIRING_REMOVED",
 	/** O comando foi cancelado por desconexão, `forgetDevice`, reload do JS ou por um `pairDevice`/`startPairingAttempt` mais novo. */

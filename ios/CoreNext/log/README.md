@@ -24,8 +24,8 @@ iPhone → CoreNextExample → corenext), porque o `Info.plist` tem `UIFileShari
 `LSSupportsOpeningDocumentsInPlace`. O `logs-*.jsonl` não tem MAC no iOS (o endereço é o UUID do periférico, que o
 iOS gera por app), mas continua fora do git, como no Android.
 
-**Um cabeçalho por export.** `device` e `firmware` são os do último relógio cujo link abriu (o `CoreBridge` nomeia o
-relógio só quando a sessão chega em `CONFIGURING`, e apaga o firmware ao trocar de relógio; ADR 24 do Repo 1), e o
+**Um cabeçalho por export.** `device` e `firmware` são os do último relógio que chegou ao handshake (o `CoreBridge`
+nomeia o relógio só quando a sessão chega em `HANDSHAKING`, e apaga o firmware ao trocar de relógio; ADR 24 do Repo 1), e o
 `mtu` é o `currentMtu` do transporte na hora do export, que volta a 23 a cada tentativa de conexão (mesmo uma que
 falha). Os pacotes são todos os gravados desde o último `clearLogs`: entre um relógio e outro, `Export` e `Clear`, senão
 os pacotes do primeiro saem sob o cabeçalho do segundo (`docs/fixtures.md` do Repo 1, seção 3.1).

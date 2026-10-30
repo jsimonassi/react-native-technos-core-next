@@ -17,7 +17,8 @@ Guia curto para agentes e para quem chega agora. O que a biblioteca faz e como c
   automática e o ciclo de vida do módulo moram no `CoreBridge` (`:bridge`). Se a mudança mexe em algum desses, ela vai
   para lá.
 - Escopo da PoC: famílias SMA (Mormaii fitGPS) e iDO (Mormaii Life Ultra GPS, só as funções básicas), no Android e no
-  iOS (o iOS testado no simulador e ainda não num iPhone com relógio; [`docs/ios-pendente.md`](docs/ios-pendente.md)).
+  iOS (o iOS rodou num iPhone com os dois relógios em 2026-10-30, em Release, sem reconexão, segundo plano nem
+  restauração; [`docs/ios-pendente.md`](docs/ios-pendente.md#o-que-o-iphone-mostrou-2026-10-30)).
   Os perfis, os nomes do scan, os UUIDs e os CCCD vêm do Repo 1 (`Profiles.all`); nada aqui é escrito por família.
   Fora: DFU, notificações, chamadas, outras famílias e modelos, CI e publicação.
 - O `TechnosWareCore` e o app Mormaii são só referência de leitura; cite-os (`arquivo:linha`), não mude nada lá.

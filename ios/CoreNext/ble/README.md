@@ -37,8 +37,10 @@ sessão, que lê o perfil; o transporte só troca o tipo quando a characteristic
 - `CBError.peerRemovedPairingInformation` (domínio `CBErrorDomain`, código 14: o iPhone guarda um vínculo que o relógio
   apagou) vira `GattStatus.PAIRING_REMOVED` (-4), com um WARN que diz o que o usuário tem de fazer (esquecer o relógio
   em Ajustes > Bluetooth). Numa conexão pendente, a falha não é re-armada: o `LinkLifecycle` a termina com um
-  `onDisconnected`, como a direta, e a sessão para com `PAIRING_REMOVED` (ADR 23 do Repo 1). O 14 do `CBATTErrorDomain`
-  é outro erro e fica com o código nativo.
+  `onDisconnected`, como a direta, e a sessão para com `PAIRING_REMOVED` (ADR 23 do Repo 1). A tradução
+  (`CentralTransport.linkStatus`) vale só onde a sessão a trata: conexão que falhou ou caiu, descoberta e CCCD. Numa
+  escrita ou leitura o erro fica com o código nativo (14). O 14 do `CBATTErrorDomain` é outro erro e também fica com o
+  código nativo.
 - Sem `NSBluetoothAlwaysUsageDescription` no `Info.plist` o central não é criado (o iOS encerraria o app): o Core fica
   sem Bluetooth e loga um ERROR.
 

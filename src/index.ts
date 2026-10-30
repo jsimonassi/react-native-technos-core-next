@@ -62,7 +62,8 @@ export const TechnosCore = {
 	 * Resolve quando a conexão fica pronta (`onConnectStateChanged` com `state = connected`). O BIND espera até
 	 * 60 s pela confirmação na tela do relógio. Rejeita na hora com `PERMISSION_DENIED`, `BLUETOOTH_OFF`,
 	 * `INVALID_ARGUMENT` ou `UNSUPPORTED_DEVICE`; depois, com `CANCELLED`, `TRANSPORT`, `CONNECT_TIMEOUT`, `GATT_NOT_SUPPORTED`,
-	 * `HANDSHAKE_FAILED` ou `DISCONNECTED`. No Core atual é `void` e não informa falha.
+	 * `HANDSHAKE_FAILED`, `DISCONNECTED` ou `PAIRING_REMOVED` (o usuário tem de esquecer o relógio nas configurações de
+	 * Bluetooth do telefone; hoje só o iOS detecta). No Core atual é `void` e não informa falha.
 	 *
 	 * @param deviceId MAC do relógio (`onScannedDevice.deviceId`).
 	 * @param name `onScannedDevice.name` (ex.: `"fitGPS"`).

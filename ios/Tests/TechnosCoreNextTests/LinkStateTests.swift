@@ -367,19 +367,28 @@ final class WriteTypeTests: XCTestCase {
 	}
 }
 
-/// Status que o `CentralTransport` entrega à sessão para cada `NSError` do CoreBluetooth (`CentralTransport.status`).
+/// Status que o `CentralTransport` entrega à sessão para cada `NSError` do CoreBluetooth: `linkStatus` na conexão, na
+/// descoberta e no CCCD; `status` na escrita e na leitura.
 final class TransportStatusTests: XCTestCase {
-	func testPeerRemovedPairingInformationBecomesThePlatformNeutralStatus() {
+	func testPeerRemovedPairingInformationBecomesThePlatformNeutralStatusWhereTheSessionHandlesIt() {
 		let error = NSError(domain: CBErrorDomain, code: CBError.Code.peerRemovedPairingInformation.rawValue)
 		XCTAssertEqual(CBError.Code.peerRemovedPairingInformation.rawValue, 14)
-		XCTAssertEqual(CentralTransport.status(error), GattStatus.shared.PAIRING_REMOVED)
-		XCTAssertEqual(CentralTransport.status(CBError(.peerRemovedPairingInformation)), GattStatus.shared.PAIRING_REMOVED)
+		XCTAssertEqual(CentralTransport.linkStatus(error), GattStatus.shared.PAIRING_REMOVED)
+		XCTAssertEqual(CentralTransport.linkStatus(CBError(.peerRemovedPairingInformation)), GattStatus.shared.PAIRING_REMOVED)
+	}
+
+	/// A sessão trata uma escrita ou leitura que falha como `TRANSPORT`; o 14 nativo deixa isso claro no log.
+	func testWritesAndReadsKeepTheNativeCodeOfARemovedPairing() {
+		let error = NSError(domain: CBErrorDomain, code: CBError.Code.peerRemovedPairingInformation.rawValue)
+		XCTAssertEqual(CentralTransport.status(error), 14)
 	}
 
 	func testOtherErrorsKeepTheirNativeCode() {
-		XCTAssertEqual(CentralTransport.status(nil), GattStatus.shared.SUCCESS)
-		XCTAssertEqual(CentralTransport.status(NSError(domain: CBErrorDomain, code: CBError.Code.connectionTimeout.rawValue)), 6)
-		XCTAssertEqual(CentralTransport.status(NSError(domain: CBATTErrorDomain, code: 14)), 14, "ATT 14 is unlikelyError, not a removed pairing")
-		XCTAssertEqual(CentralTransport.status(NSError(domain: CBErrorDomain, code: 0)), CentralTransport.unknownErrorStatus)
+		for convert in [CentralTransport.status, CentralTransport.linkStatus] {
+			XCTAssertEqual(convert(nil), GattStatus.shared.SUCCESS)
+			XCTAssertEqual(convert(NSError(domain: CBErrorDomain, code: CBError.Code.connectionTimeout.rawValue)), 6)
+			XCTAssertEqual(convert(NSError(domain: CBATTErrorDomain, code: 14)), 14, "ATT 14 is unlikelyError, not a removed pairing")
+			XCTAssertEqual(convert(NSError(domain: CBErrorDomain, code: 0)), CentralTransport.unknownErrorStatus)
+		}
 	}
 }

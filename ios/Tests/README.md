@@ -29,7 +29,7 @@ uma linha `IOS-REPLAY` no log do teste (`grep IOS-REPLAY`).
 | `TxMaskers.swift` | Port da `TxMasker` (SMA) e da `IdoTxMasker` do kit de teste do Repo 1. |
 | `Recording.swift` | Leitor mínimo do `.jsonl` (formato no `docs/fixtures.md` do Repo 1) e onde achar as fixtures. |
 | `TestSupport.swift` | O `CoreEventSink` que converte como o shim, o relógio parado na hora da gravação, o `HostHarness`. |
-| `LinkStateTests.swift` | Contrato B e ciclo do link sem CoreBluetooth: `LinkLifecycle`, `BluetoothPowerTracker`, `GattQueue`, `RestoredPeripherals` (o `didConnect` de um restaurado antes do `connect()` da sessão), `RearmBackoff`, o tipo de escrita efetivo (`CentralTransport.effectiveWriteType`) e o status de cada `NSError` (`CentralTransport.status`: `peerRemovedPairingInformation` → `GattStatus.PAIRING_REMOVED`, que termina a conexão pendente em vez de re-armar). |
+| `LinkStateTests.swift` | Contrato B e ciclo do link sem CoreBluetooth: `LinkLifecycle`, `BluetoothPowerTracker`, `GattQueue`, `RestoredPeripherals` (o `didConnect` de um restaurado antes do `connect()` da sessão), `RearmBackoff`, o tipo de escrita efetivo (`CentralTransport.effectiveWriteType`) e o status de cada `NSError` (`CentralTransport.linkStatus`, na conexão, na descoberta e no CCCD: `peerRemovedPairingInformation` → `GattStatus.PAIRING_REMOVED`, que termina a conexão pendente em vez de re-armar; `CentralTransport.status`, na escrita e na leitura: o código nativo). |
 | `StoreAndLogTests.swift` | `FileSampleStore`, `PairingStore` (também sob gravação e leitura concorrentes), `RingLogger` (concorrência), `FrameRecorder`, regras do `IosCoreHost`. |
 
 ## O que não cobre

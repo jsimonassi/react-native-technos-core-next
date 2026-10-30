@@ -19,8 +19,9 @@ Par do `NativeCoreNextModule.kt`. É o único arquivo do Core iOS que conhece o 
   entrega na thread JS: emitir da thread da sessão é seguro, como no Android.
 - Ciclo de vida: `attachSink:` na primeira chamada de um método JS (`coreBridgeFor:`; `bridge` já é propriedade do
   `RCTBridgeModule`) e de novo sempre que o sink do `CoreBridge` estiver em outra instância, para os eventos irem à
-  instância que o JS chamou por último; `invalidateSink:` no `invalidate` (reload: o `CoreBridge` rejeita as Promises
-  pendentes com `CANCELLED`); e `onHostResume` no `UIApplicationWillEnterForegroundNotification` (só da instância que
+  instância que o JS chamou por último (a marca da instância atual e o `attachSink:` mudam juntos, sob a trava da classe,
+  e o `CoreBridge.attach` troca o sink e entrega a fila sob a trava dele); `invalidateSink:` no `invalidate` (reload: o
+  `CoreBridge` rejeita as Promises pendentes com `CANCELLED`); e `onHostResume` no `UIApplicationWillEnterForegroundNotification` (só da instância que
   é o sink), porque o RN não tem `LifecycleEventListener` para TurboModule no iOS. As transições ficam no log com o endereço da instância e o método
   que as causou (`RCTNativeCoreNext/attach`, inclusive `took the event sink back from …`, e
   `RCTNativeCoreNext/invalidate`). O porquê do religar: duas instâncias no primeiro teste no iPhone

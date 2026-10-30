@@ -20,7 +20,7 @@ não estiver disponível) e devolve o caminho do primeiro:
   (`2026-10-29T08:14:10.933-03:00`, `2026-10-28T17:30:00.000+00:00`). É o arquivo que vai para
   `technos-watch-protocol/fixtures/real/fitgps/<fw>/<cenário>.jsonl`: só o export mais recente de cada cenário,
   porque cada export traz tudo desde o último `Clear` e o anterior é prefixo dele. O cabeçalho é um só: `device` e
-  `firmware` do último relógio cujo link abriu (ADR 24 do Repo 1) e o `mtu` do transporte na hora do export; trocar de
+  `firmware` do último relógio que chegou ao handshake (ADR 24 do Repo 1) e o `mtu` do transporte na hora do export; trocar de
   relógio sem `Export` e `Clear` deixa os pacotes do primeiro sob o cabeçalho do segundo.
 - `logs-<yyyyMMdd-HHmmss>.jsonl`: o anel, uma entrada JSON por linha. Tem o MAC do relógio: nunca versionar.
 

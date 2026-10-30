@@ -22,7 +22,7 @@ ios/
 - **Host Swift** (`CoreNext/`): `CoreGraph` (um por processo), `IosCoreHost` (o `CoreHost`), `CentralTransport` (o
   `Transport` sobre o CoreBluetooth), `FileSampleStore`, `PairingStore`, `RingLogger`, `FrameRecorder` e
   `CoreNext.bootstrap(launchOptions:)` para a restauração do Bluetooth.
-- **Testes no simulador** (`Tests/`, 47 testes): o host inteiro com o `CoreBridge` e a sessão do framework, sobre um
+- **Testes no simulador** (`Tests/`, 48 testes): o host inteiro com o `CoreBridge` e a sessão do framework, sobre um
   transporte que responde com as gravações reais do fitGPS (167 e 32 TX) e do Life Ultra GPS (12 TX), mais o contrato B,
   a fila de operações, a restauração, o re-arme (e o vínculo apagado que não re-arma), o status de cada `NSError` e o
   tipo de escrita sem CoreBluetooth.

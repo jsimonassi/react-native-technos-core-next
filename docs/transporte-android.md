@@ -141,7 +141,9 @@ serviços que acelera a reconexão.
 - O tipo vem do driver do Repo 1, sem olhar as propriedades descobertas. O SMA pede `WITH_RESPONSE`
   (`SmaDriver.sendFrame` e `SmaDriver.writeControl`), que o transporte traduz para `WRITE_TYPE_DEFAULT`; a SDK SMA nunca
   define o tipo e herda o inicial da characteristic (`SmaMessenger.java:118-119`), e as propriedades da `6e400002` não
-  ficam no log, então não se sabe qual tipo ela usa de fato no fitGPS. O iDO pede `WITHOUT_RESPONSE`
+  ficam no log do Android, então não se sabe qual tipo ela usa de fato no fitGPS. No iPhone (2026-10-30) a `6e400002`
+  declarou `[write|writeWithoutResponse]`: aceita os dois
+  ([`ios-pendente.md`](ios-pendente.md#o-que-o-iphone-mostrou-2026-10-30)). O iDO pede `WITHOUT_RESPONSE`
   (`WRITE_TYPE_NO_RESPONSE`), como a SDK iDO em produção (`docs/protocolo-ido.md` do Repo 1, seção 1).
 - API 33+: `writeCharacteristic(ch, value, writeType)` (devolve código; o array é copiado pela pilha).
   Abaixo: `ch.writeType = ...; ch.value = ...; writeCharacteristic(ch)`. O mesmo para o descritor.
@@ -244,9 +246,9 @@ scan não devolve nada sem localização), `BLUETOOTH_CONNECT`, `FOREGROUND_SERV
 - **Processo morto.** Sem FGS permanente, o Android pode matar o processo em segundo plano (risco 10).
 - **minSdk 26.** O transporte usa `connectGatt` com `Handler` (API 26) e `java.time`; um app com minSdk menor não
   consome esta biblioteca.
-- **Propriedades da `6e400002` não logadas.** O MTU real do fitGPS já é conhecido (23, abaixo); se a characteristic
-  aceita `WRITE_NO_RESPONSE` não, porque o transporte não loga as propriedades. Só importa se a sessão um dia escrever
-  sem resposta.
+- **Propriedades da `6e400002` não logadas.** O transporte Android não loga as propriedades. Que ela aceita
+  `WRITE_NO_RESPONSE`, o iPhone mostrou (2026-10-30: `[write|writeWithoutResponse]`); o log daqui só confirmaria no
+  Android. Só importa se a sessão um dia escrever sem resposta.
 
 ## O que a gravação do fitGPS mostrou
 

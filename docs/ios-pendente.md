@@ -220,10 +220,10 @@ processo; `EventMapper.startOfDayIso`, `sleepDay` e `historySleep` são `throws`
   não roda timer do GCD e o despertar do CoreBluetooth dura poucos segundos, então uma espera longa deixaria o relógio
   sem conexão pendente até o app voltar ao primeiro plano; a conexão pendente é passiva e não tem timeout, então re-armar
   na hora não gira o rádio. A conexão direta (`pair`) que falha sai como `onDisconnected`, e o timeout é o da sessão.
-- **Vínculo apagado no relógio** (achado no primeiro teste no iPhone, 2026-10-30). O Life Ultra GPS usa o pareamento do
-  sistema (bond, com chave LTK). O iPhone guardava o vínculo de um pareamento antigo pelo app Mormaii de produção; o
-  relógio foi pareado com um Android depois e apagou as chaves do iPhone. Todo `connect` falhou em 0,3 a 3 s com
-  `didFailToConnect` e `CBError.peerRemovedPairingInformation` (código 14), até o usuário tocar em "Esquecer este
+- **Vínculo apagado no relógio** (achado no primeiro teste no iPhone, 2026-10-30). O iPhone guardava um vínculo do
+  sistema (bond, com chave LTK) com o Life Ultra GPS, criado no pareamento antigo pelo app Mormaii de produção; não se
+  sabe se o relógio exige esse vínculo (Repo 1, `docs/protocolo-ido.md`, seção 8). O relógio foi pareado com um Android
+  depois e apagou as chaves do iPhone. Todo `connect` falhou em 0,3 a 3 s com `didFailToConnect` e `CBError.peerRemovedPairingInformation` (código 14), até o usuário tocar em "Esquecer este
   dispositivo" em Ajustes > Bluetooth; depois disso, o pareamento passou na primeira tentativa. App nenhum remove o
   vínculo. Antes, o JS recebia `DISCONNECTED` com `status=14`, e uma conexão pendente seria re-armada para sempre (pelo
   código: no teste só houve conexões diretas). Agora o
@@ -257,14 +257,17 @@ O que foi conferido no código do RN 0.81.4 (`example/node_modules/react-native`
   `getTurboModule:` é chamado nesse módulo, com ele mesmo em `InitParams.instance`. O provedor nunca recebe métodos JS.
 - **Um gerenciador por runtime.** No modo sem bridge, o `RCTInstance` cria um `RCTTurboModuleManager` só, que guarda o
   `TurboModule` por nome (`_turboModuleCache`) e o objeto por nome (`ModuleHolder`, com trava); o `provideLegacyModule`
-  não acha a classe (sem `RCT_EXPORT_MODULE`). O JS chama `TurboModuleRegistry.getEnforcing("NativeCoreNext")` num
-  lugar só (`src/specs/NativeCoreNext.ts`).
+  acha a classe pelo prefixo `RCT` (`getFallbackClassFromName`, `RCTTurboModuleManager.mm:174-181`), mas não cria
+  módulo, porque ela é TurboModule (`_isLegacyModuleClass` falso, `:487-491`). O JS chama
+  `TurboModuleRegistry.getEnforcing("NativeCoreNext")` num lugar só (`src/specs/NativeCoreNext.ts`).
 - **Não é log duplicado.** O `RingLogger` grava cada entrada uma vez; as linhas vizinhas não se repetem.
 
 Sem uma causa clara, o shim não muda o registro. O que mudou (baixo risco): o `coreBridgeFor:` religa o sink quando ele
 está em outra instância, então os eventos vão sempre para a instância que o JS chamou por último (o `attach` do
-`CoreBridge` com o mesmo sink não faz nada); e o log diz o endereço da instância, o método que a ligou e o sink anterior
-(`TurboModule 0x… attached to the CoreBridge (first JS call: initialize:reject:; previous sink 0x…)`, e
+`CoreBridge` com o mesmo sink não faz nada). A troca é atômica dos dois lados: no shim, a marca da instância atual e o
+`attachSink:` mudam sob a mesma trava da classe; no `CoreBridge`, o sink registrado e o da fila de eventos mudam sob a
+trava dele. Sem isso, duas primeiras chamadas ao mesmo tempo (o caso do teste) podiam deixar os eventos numa instância
+que o JS não chama mais. E o log diz o endereço da instância, o método que a ligou e o sink anterior (`TurboModule 0x… attached to the CoreBridge (first JS call: initialize:reject:; previous sink 0x…)`, e
 `took the event sink back from 0x…` quando o sink volta, até 20 vezes por processo). Só a instância que é o sink chama
 o `onHostResume` na volta ao primeiro plano: cada instância ligada tem o seu observador, e dois `onHostResume` pediriam
 duas reconexões, a primeira cancelada pela segunda (um `onError` `CANCELLED` com `method: null`). O próximo teste no iPhone mostra qual
@@ -311,8 +314,10 @@ Android: além dos UUIDs, as linhas do scan trazem o nome do iPhone e de aparelh
     `[read|write|writeWithoutResponse]`, `0af2` `[read|notify]`.
   - Life Ultra GPS, segundo serviço `00000000-0000-0000-6473-5f696c666973`: `00000000-0000-0100-6473-5f696c666973`
     `[read|write|writeWithoutResponse]` e `00000000-0000-0200-6473-5f696c666973` `[read|write|writeWithoutResponse|notify]`.
-    O fim do UUID, `6473 5f69 6c66 6973`, é `ds_ilfis` em ASCII, `sifli_sd` invertido: provavelmente um serviço do
-    fornecedor da plataforma SiFli (`platform` 98 no `02/01`), talvez de OTA. **Não confirmado**; a sessão o ignora.
+    É o serviço do DFU da SiFli, a plataforma do relógio (`platform` 98 no `02/01`): a SDK iDO decompilada o define
+    (`javelin/basilisk.java:5-7`), e só o DFU dela usa a `0200`, como canal serial (`SifliDFUService.java:507-512`;
+    Repo 1, `docs/protocolo-ido.md`, seção 1.1). O fim do UUID, `6473 5f69 6c66 6973`, é `ds_ilfis` em ASCII,
+    `sifli_sd` invertido. A sessão o ignora.
 - **Vínculo apagado (status 14).** Antes do teste que passou, cinco `pairDevice` com o Life Ultra GPS falharam em 0,3 a
   3 s com `didFailToConnect status=14 error=Peer removed pairing information`, todos conexões diretas
   (`autoReconnect=false`): três antes do fitGPS e duas depois, com o Bluetooth do Android já desligado (então não era o
@@ -334,9 +339,10 @@ Android: além dos UUIDs, as linhas do scan trazem o nome do iPhone e de aparelh
   recusa não foi testada.
 - **Cabeçalho errado na gravação do fitGPS.** `frames-20261030-093133.jsonl` só tem pacotes do fitGPS, mas o cabeçalho
   saiu com `device` `"Life Ultra GPS"` e `firmware` `"0.2.1"`: os pedidos ao Life Ultra GPS que falharam depois trocaram o
-  nome. Corrigido depois do teste no `CoreBridge` (ADR 24 do Repo 1: o nome só muda quando o link abre); o arquivo já
-  exportado continua com o cabeçalho errado e precisa de correção antes de virar fixture. O `mtu` do cabeçalho é o do
-  transporte na hora do export (23 e 515, aqui iguais aos dos links).
+  nome. Corrigido depois do teste no `CoreBridge` (ADR 24 do Repo 1: o nome só muda quando o handshake começa). O
+  arquivo já exportado virou fixture com o `device` trocado por script para `Mormaii_fitGPS`, sem mexer nos pacotes
+  (Repo 1, `docs/fixtures.md`, seção 5). O `mtu` do cabeçalho é o do transporte na hora do export (23 e 515, aqui
+  iguais aos dos links).
 - **Primeiro sono SMA real** (sync do fitGPS, com o relógio parado durante a noite, sem uso): uma página `05/46` com 9
   registros, de um START (17) em 2026-10-29 21:58 até 2026-10-30 09:30, sem END (34) e com um registro fora de ordem; a
   sessão montou uma sessão de sono. A página de passos trouxe um `mode 16` com 56 passos às 23:59 de 2026-10-29 (o total
@@ -349,8 +355,9 @@ O que este teste não cobriu está em [Pendências](#pendências).
 
 Feita em 2026-10-30, com Xcode 26.1.1 e simulador iOS 26:
 
-- **Testes do host no simulador** (`ios/Tests/`, `xcodebuild test`): 47 testes (43 na revisão de 2026-10-30, mais 4 do
-  vínculo apagado: o status de cada `NSError` e o `LinkLifecycle` que termina a conexão pendente). O `CoreGraph` de verdade (com o
+- **Testes do host no simulador** (`ios/Tests/`, `xcodebuild test`): 48 testes (43 na revisão de 2026-10-30, mais 5 do
+  vínculo apagado: o status de cada `NSError`, na conexão e na escrita, e o `LinkLifecycle` que termina a conexão
+  pendente). O `CoreGraph` de verdade (com o
   `CoreBridge` e a sessão do framework Kotlin, `IosCoreHost`, `FileSampleStore`, `PairingStore`, `RingLogger`,
   `FrameRecorder`) sobre um transporte que responde com as gravações reais, método JS por método JS:
   `pair-commands-bt-reconnect-sync.jsonl` (fitGPS, 850 pacotes, **TX 167/167**, Bluetooth desligado e religado com
@@ -381,11 +388,13 @@ Fechado no teste de 2026-10-30 ([O que o iPhone mostrou](#o-que-o-iphone-mostrou
   na linha `CentralTransport/discoverServices service=…`, sem WARN `CentralTransport/write … declares`; as 12 escritas sem
   resposta do Life Ultra GPS completaram.
 - [x] `Disconnect` com o fitGPS: `DISCONNECTED`, sem reconexão sozinha.
+- [x] As duas gravações do teste (`platform` `ios`) como fixture no Repo 1, reproduzindo nos quatro targets:
+  `fixtures/real/fitgps/0.2.1/ios-pair-info-time-steps-sleep-sync.jsonl` (52 pacotes, `TX matched 22/22`, com o
+  `device` do cabeçalho corrigido por script) e `fixtures/real/lifeultragps/1.1.1/ios-pair-info-time-steps-sync.jsonl`
+  (24 pacotes, `TX matched 12/12`).
 
 Em aberto:
 
-- [ ] As duas gravações do teste (`platform` `ios`, 52 e 24 pacotes) como fixture no Repo 1, reproduzindo
-  `TX matched N/N`; a do fitGPS precisa antes do cabeçalho corrigido (ADR 24 do Repo 1).
 - [ ] A escrita sem resposta do iDO com o buffer cheio (`peripheralIsReady(toSendWriteWithoutResponse:)`): não aconteceu
   no teste.
 - [ ] Bluetooth desligado e religado **com o relógio conectado** (contrato B no aparelho e a volta a `READY` só com

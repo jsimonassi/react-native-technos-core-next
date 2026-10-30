@@ -68,7 +68,10 @@ static NSInteger sSinkMovesToLog = 20;
 ///
 /// Religa também quando o sink do `CoreBridge` está em **outra** instância: no primeiro teste no iPhone (2026-10-30), o
 /// log teve dois `RCTNativeCoreNext/attach` no mesmo milissegundo, de duas instâncias, e o `attachSink:` da segunda
-/// substitui o da primeira. Assim os eventos ficam sempre na instância que o JS chamou por último. A causa das duas
+/// substitui o da primeira. Assim os eventos ficam sempre na instância que o JS chamou por último: o `sCurrentSink` e o
+/// `attachSink:` mudam juntos, sob a trava da classe (fora dela, duas primeiras chamadas ao mesmo tempo deixavam o sink
+/// do `CoreBridge` numa instância e o `sCurrentSink` na outra, e a última nunca o pegava de volta). Não trava: o
+/// `attachSink:` entrega a fila pelo `emitName:`, que não usa as travas deste arquivo. A causa das duas
 /// instâncias está em investigação (`docs/ios-pendente.md`, seção "Duas instâncias do TurboModule"); o log leva o
 /// endereço da instância e o método, para o próximo teste mostrar qual chamada veio por qual.
 - (TWPCoreBridge *)coreBridgeFor:(SEL)method
@@ -97,9 +100,9 @@ static NSInteger sSinkMovesToLog = 20;
 				sSinkMovesToLog -= 1;
 				logMove = YES;
 			}
-		}
-		if (firstCall || previous != self) {
-			[bridge attachSink:self];
+			if (firstCall || previous != self) {
+				[bridge attachSink:self];
+			}
 		}
 		if (firstCall) {
 			NSString *message = [NSString stringWithFormat:@"TurboModule %p attached to the CoreBridge (first JS call: %@; previous sink %p)",

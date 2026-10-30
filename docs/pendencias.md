@@ -46,8 +46,9 @@ cada progresso ficaria cerca de 58 s sem evento durante o sono.
 1. **Progresso por página e timer reiniciado no progresso.** O Repo 1 emite `onSyncProgress` a cada página lida (o
    formato do evento não muda: `{ progress }` de 0 a 100) e o app chama `startSyncTimeout()` dentro do
    `handleSyncProgress`. Exige mudança nos dois lados; o contrato JS deste repositório não muda.
-2. **Sync mais rápido.** No Repo 1, escrever o ACK com `WITHOUT_RESPONSE`, se a `6e400002` aceitar (seção 6), ou não
-   bloquear o despacho esperando a confirmação da escrita do ACK; isso tira a espera de cerca de 358 ms por página
+2. **Sync mais rápido.** No Repo 1, escrever o ACK com `WITHOUT_RESPONSE`, que a `6e400002` declara (no iPhone, em
+   2026-10-30: `[write|writeWithoutResponse]`;
+   [`ios-pendente.md`](ios-pendente.md#o-que-o-iphone-mostrou-2026-10-30)), ou não bloquear o despacho esperando a confirmação da escrita do ACK; isso tira a espera de cerca de 358 ms por página
    (estimativa: de 900 para 550 ms, cerca de 35 s em 64 páginas). Os cerca de 362 ms até o ACK do relógio são do
    protocolo. Não serve parar a paginação nas páginas antigas: o relógio entrega da mais antiga para a mais nova, então
    isso nunca chegaria às noites recentes.
@@ -104,12 +105,13 @@ exemplo registrando o módulo e resolvendo o `initialize` com o evento de estado
   sync com o fitGPS 0.2.1 e com o Life Ultra GPS 1.1.1, este depois de esquecer nos Ajustes um vínculo Bluetooth antigo
   (`PAIRING_REMOVED`, ADR 23 do Repo 1). Resultados em
   [`ios-pendente.md`](ios-pendente.md#o-que-o-iphone-mostrou-2026-10-30).
+- [x] **Gravações iOS como fixture**: as duas do primeiro teste reproduzem no Repo 1, em
+  `fixtures/real/fitgps/0.2.1/ios-pair-info-time-steps-sleep-sync.jsonl` (`TX matched 22/22`; o `device` do cabeçalho
+  foi corrigido por script, `docs/fixtures.md` de lá, seção 5) e
+  `fixtures/real/lifeultragps/1.1.1/ios-pair-info-time-steps-sync.jsonl` (`TX matched 12/12`).
 
 Continua em aberto, nesta ordem:
 
-- [ ] **Gravações iOS como fixture**: as duas do primeiro teste (`platform` `ios`) copiadas para
-  `fixtures/real/<perfil>/<fw>/` no Repo 1 e reproduzindo lá; a do fitGPS precisa antes do cabeçalho corrigido (ADR 24
-  do Repo 1).
 - [ ] **O resto do roteiro no iPhone**: reconexão (Bluetooth desligado com o relógio conectado, `Reconnect last`, fora de
   alcance, app fechado e aberto de novo), `PAIRING_REMOVED` com o código atual, reinstalação (o UUID muda) e a recusa da
   autorização ([`ios-pendente.md`](ios-pendente.md#pendências)).
@@ -212,8 +214,9 @@ passa por ele, ou este repositório ganha assinaturas vazias (que nunca disparam
 
 ## 6. Pequenos itens do host
 
-- Logar as propriedades da `6e400002` na descoberta (`AndroidGattTransport.mapServices`), para saber se o fitGPS aceita
-  `WRITE_NO_RESPONSE` (`transporte-android.md`, limites conhecidos).
+- Logar as propriedades das characteristics na descoberta (`AndroidGattTransport.mapServices`), como o iOS já faz. Se a
+  `6e400002` aceita escrita sem resposta, o iPhone já respondeu (2026-10-30: `[write|writeWithoutResponse]`); falta só o
+  log do lado Android (`transporte-android.md`, limites conhecidos).
 - O app de exemplo não registra modelo e versão do Android no log; hoje isso depende de anotar à mão a cada rodada
   (`example/README.md`).
 - O `.gitignore` e o `.editorconfig` da raiz ainda não estão versionados (`git ls-files .gitignore` não imprime nada;
