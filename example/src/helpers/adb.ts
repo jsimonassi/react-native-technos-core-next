@@ -5,7 +5,7 @@ const basename = (path: string): string => path.slice(path.lastIndexOf("/") + 1)
 
 /**
  * Arquivos de uma exportação. `exportLogs` devolve a gravação de frames (`frames-<carimbo>.jsonl`) e grava o log ao
- * lado com o mesmo carimbo (`logs-<carimbo>.jsonl`), como faz `CoreGraph.exportLogs` no Android.
+ * lado com o mesmo carimbo (`logs-<carimbo>.jsonl`), como faz `AndroidCoreHost.exportLogs` no Android.
  */
 export const exportedFiles = (framesPath: string): string[] => {
 	const name = basename(framesPath);

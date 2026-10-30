@@ -173,7 +173,8 @@ com MTU 23, o cabeçalho L1 de 8 bytes chegou sempre sozinho numa notificação 
 
 `BluetoothStateReceiver` (registrado uma vez por processo) entrega só `STATE_ON` e `STATE_OFF`.
 
-- **Desligou:** o scanner para; o transporte cancela re-arme e scan de reconexão, falha as operações pendentes, fecha
+- **Desligou:** o scanner para (o `CoreGraph` avisa o `CoreBridge`, `onBluetoothTurnedOff`, que pede o `stopScan` ao
+  `AndroidCoreHost`); o transporte cancela re-arme e scan de reconexão, falha as operações pendentes, fecha
   o GATT, fica parado e entrega só `onBluetoothStateChanged(false)`, **sem** `onDisconnected` para o link ou a conexão
   pendente (contrato B, em [Eventos de conexão](#eventos-de-conexão)). A sessão vai direto para `BLUETOOTH_OFF`
   (`deviceConnectStates` 4), sem passar por `RECONNECTING` nem tentar um `connect()` para o adaptador desligado.
@@ -181,20 +182,23 @@ com MTU 23, o cabeçalho L1 de 8 bytes chegou sempre sozinho numa notificação 
   `AndroidGattTransport.reportBluetoothOffAtStartup()` depois de registrar o receiver. Se o adaptador está desligado
   (lido na thread do GATT), o transporte entrega o mesmo `onBluetoothStateChanged(false)` e a sessão sai de
   `DISCONNECTED` para `BLUETOOTH_OFF`; o JS vê o estado 4 pelo evento da transição (o primeiro `initialize()` pode ter
-  reenviado 0 antes dele) e por qualquer `emitCurrentState` seguinte.
+  reenviado 0 antes dele) e por qualquer `initialize()` seguinte (que reenvia o estado atual).
   Se o Bluetooth ligar no meio, ou a leitura já o vê ligado e não sai nada, ou o `STATE_ON` do receiver entra na fila
   depois do `false`: o último estado da sessão é o certo.
 - **Ligou:** o transporte entrega `onBluetoothStateChanged(true)` e, na mesma thread, logo depois, o `CoreGraph` chama
-  `reconnectIfPaired` (ordem garantida: o `reconnect` entra na fila da sessão depois do evento de Bluetooth).
+  `CoreBridge.onBluetoothTurnedOn`, que decide se reconecta (`reconnectIfPaired`; ordem garantida: o `reconnect`
+  entra na fila da sessão depois do evento de Bluetooth).
 
 ## Serviço em primeiro plano só no sync
 
 `SyncForegroundService` (`foregroundServiceType="connectedDevice"`, `exported="false"`):
 
 - Sobe em `onSyncStarted`; desce em `onSyncFinished`, no `onError` do sync ou se a sessão sair de `READY`/`SYNCING`.
+  Quem decide é o `CoreBridge` (`startSyncWork`/`stopSyncWork`); o `AndroidCoreHost` só chama `start`/`stop`.
 - Notificação de importância baixa no canal `corenext.sync`.
 - O log registra a subida (`SyncForegroundService/onStartCommand`) e a descida de fato
-  (`SyncForegroundService/onDestroy`), não só o pedido de parada (`CoreSessionListener/stopSyncService`).
+  (`SyncForegroundService/onDestroy`), não só o pedido de parada (`CoreBridge/stopSyncWork`; antes,
+  `CoreSessionListener/stopSyncService`).
 - `onStartCommand` chama `startForeground` antes de qualquer coisa: um `startForegroundService` sem `startForeground` em
   poucos segundos derruba o app, mesmo que o sync já tenha acabado. Por isso `stop()` não usa `stopService`; ele marca
   "não precisa mais" e o próprio serviço se encerra depois de `startForeground`.

@@ -11,8 +11,9 @@ A biblioteca é ligada da raiz do repositório, sem cópia em `node_modules`: `r
 
 - Node 20+, JDK 17 e Android SDK (compileSdk 36). O `npm install` é feito aqui; a raiz não tem `node_modules`.
 - Celular Android físico com depuração USB. O emulador não tem Bluetooth de verdade.
-- O módulo de protocolo publicado no Maven local, porque o build Android depende de
-  `br.com.grupotechnos.watch:protocol:0.1.0`:
+- Os módulos do Repo 1 publicados no Maven local, porque o build Android depende de
+  `br.com.grupotechnos.watch:bridge:0.1.0`, que traz o `br.com.grupotechnos.watch:protocol:0.1.0`. O
+  `publishToMavenLocal` publica os dois:
 
   ```sh
   cd ../../technos-watch-protocol && ./gradlew publishToMavenLocal
@@ -153,5 +154,6 @@ __tests__/                   # Jest
   em 60 s. Tente de novo; se repetir, `Forget` e reinicie o relógio.
 - **`NOT_READY` nos botões.** O estado não é `Conectado (2)`.
 - **`Passos` volta vazio.** Rode o `Sync` antes: `getHistoryPedometer` lê só o histórico local.
-- **Build falha com `Could not find br.com.grupotechnos.watch:protocol:0.1.0`.** Falta o `publishToMavenLocal` do
-  Repo 1.
+- **Build falha com `Could not find br.com.grupotechnos.watch:bridge:0.1.0` (ou `protocol:0.1.0`).** Falta o
+  `publishToMavenLocal` do Repo 1, que publica os dois. Um `~/.m2` de antes do `:bridge` tem só o `protocol`, e o erro
+  cita o `bridge`.

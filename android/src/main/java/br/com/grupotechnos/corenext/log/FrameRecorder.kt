@@ -25,7 +25,7 @@ class FrameRecorder(
 	private val nowMillis: () -> Long = System::currentTimeMillis,
 	private val zone: () -> ZoneId = ZoneId::systemDefault,
 ) {
-	/** Metadados do cabeçalho, preenchidos pelo `CoreGraph` conforme a sessão avança. */
+	/** Metadados do cabeçalho, preenchidos pelo `AndroidCoreHost` conforme a sessão avança (e o MTU no export). */
 	@Volatile var deviceName: String = "unknown"
 
 	@Volatile var firmware: String? = null

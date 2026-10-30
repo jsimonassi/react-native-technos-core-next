@@ -31,8 +31,9 @@ completa.
 
 ## Depende de
 
-Repo 1 (`log/WatchLogger`, `log/FrameJsonl`), `android.util.Log`, `org.json`. Usado pelo `CoreGraph` (que liga o
-`onEntry` ao evento `onLog`).
+Repo 1 (`log/WatchLogger`, `log/FrameJsonl`), `android.util.Log`, `org.json`. Montado pelo `CoreGraph`, que liga o
+`onEntry` ao `CoreBridge.onLogEntry` (o evento `onLog`); o `AndroidCoreHost` lê o anel (`getLogs`), muda o nível,
+limpa, exporta e preenche o cabeçalho da gravação.
 
 ## Testes
 

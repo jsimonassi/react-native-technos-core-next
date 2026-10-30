@@ -23,7 +23,9 @@ de dados do Core atual (`SMADATAREPOSITORYLABEL`).
 
 ## Depende de
 
-Repo 1 (`session/SampleStore`, `domain/`), `org.json` e `SharedPreferences` do Android. Usado pelo `CoreGraph`.
+Repo 1 (`session/SampleStore`, `domain/`), `org.json` e `SharedPreferences` do Android. Montado pelo `CoreGraph`; o
+`FileSampleStore` é o `SampleStore` da sessão, e o `PairingPrefs` é lido e gravado pelo `AndroidCoreHost` (quando, o
+`CoreBridge` decide).
 
 ## Invariantes
 

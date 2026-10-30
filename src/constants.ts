@@ -53,7 +53,7 @@ export type DeletedCategory = (typeof deletedCategory)[keyof typeof deletedCateg
  * Códigos de erro de `onError.code` e do `code` das Promises rejeitadas.
  *
  * Os doze primeiros vêm do módulo de protocolo (`WatchErrorCodes.kt` do `technos-watch-protocol`); os quatro
- * últimos nascem no host Android antes de a sessão ser chamada (`android/.../bridge/HostErrorCodes.kt`).
+ * últimos nascem no nativo antes de a sessão ser chamada (`HostErrorCodes.kt` do `:bridge` do mesmo repositório).
  * Mudou uma das duas listas nativas, mude aqui e em `docs/api-js.md`.
  */
 export const errorCodes = {

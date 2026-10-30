@@ -5,10 +5,11 @@ import com.facebook.react.bridge.WritableArray
 import com.facebook.react.bridge.WritableMap
 
 /**
- * Converte os mapas puros do [EventMapper] em `WritableMap`/`WritableArray` do React Native.
+ * Converte os mapas puros do `EventMapper` do `:bridge` do Repo 1 (`br.com.grupotechnos.watch.bridge.EventMapper`, que
+ * o `CoreBridge` emite e devolve) em `WritableMap`/`WritableArray` do React Native.
  *
  * Precisa das bibliotecas nativas do RN carregadas (`Arguments.createMap` cria um `WritableNativeMap`),
- * por isso fica separado do [EventMapper] e não é usado nos testes JVM.
+ * por isso fica separado do código comum do Repo 1 e não é usado nos testes JVM.
  *
  * `Long` vira `Double` porque o `WritableMap` não tem `putLong` e o JS só tem `number`.
  * Tipos não previstos viram texto (`toString`) em vez de derrubar o processo.

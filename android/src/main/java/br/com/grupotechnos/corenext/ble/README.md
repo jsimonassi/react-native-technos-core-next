@@ -17,14 +17,15 @@ dele (scan, estado do adaptador, serviço em primeiro plano).
 
 ## Não faz
 
-Não decide quando conectar, reconectar ou desistir (a sessão decide; o `CoreGraph` decide reconectar ao voltar
-para o app ou ao religar o Bluetooth). Não interpreta bytes. Não loga pacotes (quem loga é a sessão, pelo
-`WatchLogger.frame`, numa linha `Frame/<uuid>` por pacote; o resumo por frame remontado, com `seq`, rótulo e CRC, sai
-nas linhas `SmaDriver/frame` do Repo 1).
+Não decide quando conectar, reconectar ou desistir (a sessão decide; o `CoreBridge` do Repo 1 decide reconectar ao
+voltar para o app ou ao religar o Bluetooth, e o `CoreGraph` só o avisa). Não interpreta bytes. Não loga pacotes (quem
+loga é a sessão, pelo `WatchLogger.frame`, numa linha `Frame/<uuid>` por pacote; o resumo por frame remontado, com
+`seq`, rótulo e CRC, sai nas linhas `SmaDriver/frame` do Repo 1).
 
 ## Depende de
 
-Repo 1 (`transport/`, `profile/`, `log/`), SDK Android. Usado por `CoreGraph`.
+Repo 1 (`transport/`, `profile/`, `log/`), SDK Android. Montado pelo `CoreGraph`; o `AndroidCoreHost` usa
+`BlePermissions`, o `BleScanner` e o `SyncForegroundService` quando o `CoreBridge` pede.
 
 ## Invariantes
 

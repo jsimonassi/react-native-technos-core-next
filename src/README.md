@@ -14,7 +14,7 @@ cache; quem precisa disso é o app (o exemplo faz em `example/src/hooks/useCoreE
 | Arquivo | Conteúdo | Dono |
 |---|---|---|
 | `specs/NativeCoreNext.ts` | Spec do TurboModule (codegen). Contrato. | lead |
-| `types/events.ts` | Formato de cada evento. Contrato com `android/.../bridge/EventMapper.kt`. | lead |
+| `types/events.ts` | Formato de cada evento. Contrato com o `EventMapper` do `:bridge` (Repo 1). | lead |
 | `types/emitter.ts` | `TechnosEventEmitter`, `TechnosEventMap` (payload por nome de evento). | JS |
 | `types/compat.ts` | Apelidos com os nomes de tipo do Core atual (`TechnosPedometerHistory`...). | JS |
 | `constants.ts` | `deviceConnectStates`, `deletedCategory`, `errorCodes`, `logLevels`, `technosEventNames`. | JS |
@@ -31,7 +31,7 @@ cache; quem precisa disso é o app (o exemplo faz em `example/src/hooks/useCoreE
 ## Invariantes
 
 - Os valores de `deviceConnectStates` e `deletedCategory` são os do Core atual e não mudam.
-- `errorCodes` acompanha `WatchErrorCodes.kt` (Repo 1) e `HostErrorCodes.kt` (Android).
+- `errorCodes` acompanha `WatchErrorCodes.kt` (`:protocol`) e `HostErrorCodes.kt` (`:bridge`), os dois no Repo 1.
 - Nada aqui guarda estado entre chamadas; `getNativeEventData` e `requestNativeEventData` sempre removem a inscrição.
 - Mudou spec, payload ou constante: atualize `docs/api-js.md`, o mock e os testes do exemplo no mesmo PR.
 

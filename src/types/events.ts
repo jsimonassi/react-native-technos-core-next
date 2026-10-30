@@ -1,7 +1,7 @@
 /**
  * Formato dos eventos emitidos pelo módulo nativo.
  *
- * É o contrato entre o código nativo (`android/.../bridge/EventMapper.kt`) e o JavaScript.
+ * É o contrato entre o código nativo (o `EventMapper` do `:bridge` do `technos-watch-protocol`) e o JavaScript.
  * Onde existe equivalente no Core atual (`react-native-technos-ware-core`), os nomes e tipos são os mesmos,
  * para o app Mormaii trocar de pacote mudando só o import. Campos novos são opcionais para o app atual.
  *

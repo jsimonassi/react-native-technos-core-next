@@ -9,6 +9,10 @@ Fontes do contrato: `src/specs/NativeCoreNext.ts` (TurboModule), `src/types/even
 (wrapper). O caminho de cada chamada no Android está em [`arquitetura.md`](arquitetura.md#comandos-promises-e-eventos).
 Mudou o spec ou um payload, atualize este arquivo no mesmo PR.
 
+O que cada método faz do lado nativo mora no `CoreBridge` do `:bridge` do Repo 1 (o TurboModule Android só o chama;
+[`arquitetura.md`](arquitetura.md#o-que-mora-onde)), e o iOS vai usar o mesmo código. O contrato descrito aqui não
+mudou com essa troca: mesmos métodos, eventos, payloads, ordem e rejeições.
+
 Escopo da PoC: família SMA (Mormaii fitGPS), só Android. No iOS o import falha, porque
 `TurboModuleRegistry.getEnforcing("NativeCoreNext")` não acha o módulo (ver `ios-pendente.md`).
 
@@ -53,8 +57,8 @@ sub.remove();
 1. **Comando + evento.** Comandos que falam com o relógio devolvem `Promise<void>`; o dado lido chega pelo evento
    correspondente, como no Core atual. Assim o padrão do app Mormaii (`getHistoryPedometer(3)` e depois
    `getNativeEventData(onHistoryPedometer, 20000)`) continua funcionando.
-2. **Ordem evento → Promise.** O nativo emite o evento e só depois resolve a Promise
-   (`android/.../CoreSessionListener.kt`). Quem espera a Promise e depois lê o estado já encontra o dado.
+2. **Ordem evento → Promise.** O nativo emite o evento e só depois resolve a Promise (o listener da sessão no
+   `CoreBridge` do Repo 1). Quem espera a Promise e depois lê o estado já encontra o dado.
 3. **Rejeição.** A Promise rejeita com um `Error` que tem `code` (um dos [`errorCodes`](#errorcodes)) e `message`.
    Toda rejeição também sai em [`onError`](#onerror), com o nome do método em `method`.
 4. **Inscreva antes de chamar.** Eventos emitidos sem ninguém inscrito se perdem, como em qualquer `EventEmitter` do
@@ -106,7 +110,7 @@ Resumo (detalhes de cada um abaixo):
 ### `initialize(): Promise<void>`
 
 Cria o grafo nativo (sessão, transporte, logger, armazenamento) uma vez por processo e, se há relógio pareado salvo
-e ninguém pediu desconexão neste processo, pede a reconexão (`CoreGraph.reconnectIfPaired`). Idempotente: o app de
+e ninguém pediu desconexão neste processo, pede a reconexão (`CoreBridge.reconnectIfPaired`). Idempotente: o app de
 exemplo chama ao montar e de novo quando as permissões chegam.
 
 Antes de pedir a reconexão, emite `onConnectStateChanged` com o estado atual da sessão (com `phase: null`). O grafo
@@ -407,7 +411,7 @@ interface ConnectStateChangedEvent {
 { "state": 1, "sessionState": "HANDSHAKING", "phase": "BIND" }
 ```
 
-Tradução do estado da sessão para `state` (`android/.../bridge/StateMapper.kt`):
+Tradução do estado da sessão para `state` (`StateMapper` do `:bridge`, Repo 1):
 
 | `sessionState` | `state` | Observação |
 |---|---|---|
@@ -671,7 +675,8 @@ têm efeito.
 | `INVALID_ARGUMENT` | host | `deviceId` não é MAC |
 | `IO_ERROR` | host | falha de arquivo (histórico local, exportação) |
 
-Os da sessão são os de `WatchErrorCodes.kt` (Repo 1); os do host, os de `android/.../bridge/HostErrorCodes.kt`.
+Os da sessão são os de `WatchErrorCodes.kt` (`:protocol`, Repo 1); os do host, os de `HostErrorCodes.kt` (`:bridge`,
+Repo 1).
 
 ### `logLevels`
 

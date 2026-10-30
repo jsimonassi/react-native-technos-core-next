@@ -20,8 +20,9 @@ Pod::Spec.new do |s|
 	s.source_files = "ios/**/*.{h,m,mm,swift}"
 	s.swift_version = "5.9"
 
-	# Módulo de protocolo (Repo 1) gerado por `./gradlew :protocol:assembleTechnosWatchProtocolXCFramework`
-	# e copiado para ios/Frameworks/ (ver ios/README.md). É estático (`isStatic = true` no Repo 1).
+	# Framework guarda-chuva do Repo 1 (o módulo :bridge, com o :protocol exportado), gerado por
+	# `./gradlew assembleTechnosWatchProtocolXCFramework` em bridge/build/XCFrameworks/release/ e copiado para
+	# ios/Frameworks/ (ver ios/README.md). É estático (`isStatic = true` no Repo 1).
 	s.vendored_frameworks = "ios/Frameworks/TechnosWatchProtocol.xcframework"
 
 	# Dependências do React Native e da arquitetura nova (codegen do NativeCoreNextSpec).

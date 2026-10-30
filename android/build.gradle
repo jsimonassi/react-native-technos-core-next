@@ -36,8 +36,8 @@ kotlin {
 }
 
 repositories {
-	// O módulo de protocolo (technos-watch-protocol) é publicado só localmente nesta PoC (publishToMavenLocal).
-	// O app hospedeiro também precisa deste repositório (ver example/android/build.gradle).
+	// Os módulos do technos-watch-protocol (:bridge e :protocol) são publicados só localmente nesta PoC
+	// (publishToMavenLocal). O app hospedeiro também precisa deste repositório (ver example/android/build.gradle).
 	mavenLocal {
 		content {
 			includeGroup("br.com.grupotechnos.watch")
@@ -50,8 +50,10 @@ repositories {
 dependencies {
 	// A versão do react-android é definida pelo plugin do React Native do app hospedeiro.
 	implementation "com.facebook.react:react-android"
-	// Coordenada raiz do KMP: o Gradle escolhe a variante Android pelo metadata (.module) publicado.
-	implementation "br.com.grupotechnos.watch:protocol:0.1.0"
+	// O :bridge do Repo 1: o CoreBridge (cada método JS, o listener da sessão, a fila de eventos) e o contrato JS em
+	// Kotlin puro. Ele traz o :protocol (WatchSession, Transport, domínio) como api, por isso não há linha separada para
+	// o protocolo. Coordenada raiz do KMP: o Gradle escolhe a variante Android pelo metadata (.module) publicado.
+	implementation "br.com.grupotechnos.watch:bridge:0.1.0"
 
 	testImplementation "junit:junit:4.13.2"
 	testImplementation "org.jetbrains.kotlin:kotlin-test"

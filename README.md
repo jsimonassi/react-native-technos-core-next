@@ -1,9 +1,10 @@
 # react-native-technos-core-next
 
 Core React Native (TurboModule `NativeCoreNext`) dos smartwatches Technos, escrito sobre o módulo Kotlin
-Multiplatform [`technos-watch-protocol`](../technos-watch-protocol/README.md). O módulo de protocolo é dono do
-domínio, da sessão e dos codecs; esta biblioteca só traduz JS ↔ sessão e é dona do BLE do Android, do histórico
-local e do log.
+Multiplatform [`technos-watch-protocol`](../technos-watch-protocol/README.md). Lá ficam o domínio, a sessão e os
+codecs (`:protocol`) e o que cada método JS faz (o `CoreBridge`, no `:bridge`: checagens, eventos, ordem
+evento/`resolve`, rejeições, pareamento salvo, reconexão automática). Esta biblioteca é a casca React Native sobre o
+`CoreBridge` e é dona do BLE do Android, do histórico local e do log.
 
 **Estado: PoC.** Família SMA (Mormaii fitGPS), só Android, RN 0.81 com a nova arquitetura. O iOS ainda não existe
 (ver [`docs/ios-pendente.md`](docs/ios-pendente.md)); importar a biblioteca no iOS lança erro. Uma primeira sessão
@@ -17,7 +18,7 @@ Bluetooth ([o que ela mostrou](docs/transporte-android.md#o-que-a-gravação-do-
 Pré-requisitos: Node 20+, JDK 17, Android SDK (`ANDROID_HOME`), um Android físico e um Mormaii fitGPS.
 
 ```sh
-# 1. Publicar o módulo de protocolo no Maven local (~/.m2)
+# 1. Publicar os módulos do Repo 1 (:protocol e :bridge) no Maven local (~/.m2)
 cd technos-watch-protocol && ./gradlew publishToMavenLocal
 
 # 2. Rodar o app de exemplo no celular
@@ -50,9 +51,10 @@ chegando pelo evento. Referência completa, payloads de exemplo e roteiro de mig
 
 ```
 src/                 # JS: spec do TurboModule, wrapper TechnosCore/TechnosEvents, tipos, utils, mock
-android/             # módulo Android (Kotlin): NativeCoreNextModule, CoreGraph e as pastas abaixo
+android/             # módulo Android (Kotlin): NativeCoreNextModule (casca sobre o CoreBridge), CoreGraph,
+                     # AndroidCoreHost e as pastas abaixo
   .../corenext/ble/      # BluetoothGatt, fila GATT, scan, Bluetooth on/off, serviço de sync em primeiro plano
-  .../corenext/bridge/   # tradução domínio ↔ payloads JS, estados, Promises pendentes, eventos guardados
+  .../corenext/bridge/   # React Native ↔ valores puros: WritableConverter, ReadableConverter, PromiseCompletion
   .../corenext/store/    # histórico local (JSON atômico) e pareamento salvo
   .../corenext/log/      # anel de log, Logcat, onLog e gravação de frames para fixture
 ios/                 # só o README do que falta; o podspec fica na raiz
@@ -67,7 +69,7 @@ Cada pasta de `android/.../corenext/` tem um `README.md` com o que faz, o que n�
 | Documento | Conteúdo |
 |---|---|
 | [`CLAUDE.md`](CLAUDE.md) | Comandos, convenções, arquivos de contrato e quando atualizar cada doc |
-| [`docs/arquitetura.md`](docs/arquitetura.md) | Quem é dono de quê, ciclo de vida da conexão, threading, eventos, códigos de erro |
+| [`docs/arquitetura.md`](docs/arquitetura.md) | Quem é dono de quê (o que mora no `CoreBridge` do Repo 1 e o que fica aqui), ciclo de vida da conexão, threading, eventos, códigos de erro |
 | [`docs/api-js.md`](docs/api-js.md) | Cada método e evento, com payload de exemplo e o equivalente no Core atual |
 | [`docs/transporte-android.md`](docs/transporte-android.md) | Fila GATT, autoConnect, MTU, CCCD, write type, Bluetooth on/off e limites conhecidos |
 | [`docs/ios-pendente.md`](docs/ios-pendente.md) | O que falta para o iOS e as armadilhas já mapeadas |

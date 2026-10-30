@@ -1,8 +1,11 @@
 # Arquitetura do `react-native-technos-core-next`
 
 Visão do Repo 2: um TurboModule fino sobre o `technos-watch-protocol` (Repo 1). Esta PoC cobre a família SMA
-(Mormaii fitGPS) no Android. O iOS está descrito em [`ios-pendente.md`](ios-pendente.md); o transporte Android em
-detalhe em [`transporte-android.md`](transporte-android.md); o contrato JS em `src/specs/NativeCoreNext.ts` e
+(Mormaii fitGPS) no Android. O que cada método JS faz (checagens, eventos, ordem evento/`resolve`, rejeições,
+pareamento salvo, reconexão automática) mora no `CoreBridge` do `:bridge` do Repo 1, descrito na seção 13 do
+[`docs/arquitetura.md` de lá](../../technos-watch-protocol/docs/arquitetura.md#13-controlador-comum-corebridge); aqui
+fica a plataforma. O iOS está descrito em [`ios-pendente.md`](ios-pendente.md); o transporte Android em detalhe em
+[`transporte-android.md`](transporte-android.md); o contrato JS em `src/specs/NativeCoreNext.ts` e
 `src/types/events.ts`.
 
 ## Quem é dono de quê
@@ -10,58 +13,104 @@ detalhe em [`transporte-android.md`](transporte-android.md); o contrato JS em `s
 | Camada | Onde | Responsável por | Não faz |
 |---|---|---|---|
 | JS | `src/` | Wrapper `TechnosCore`/`TechnosEvents`, tipos, permissões (no app) | Nada de BLE |
-| Módulo | `NativeCoreNextModule.kt` | Validar entrada, registrar Promise, chamar a `WatchSession` | Regra de protocolo |
-| Grafo | `CoreGraph.kt`, `CoreSessionListener.kt` | Montar a sessão uma vez por processo; efeitos de processo (pareamento salvo, FGS, reconexão); emitir eventos e liquidar Promises | Bytes, estados da sessão |
+| Módulo | `NativeCoreNextModule.kt` | Uma chamada ao `CoreBridge` por método JS (a Promise num `PromiseCompletion`, o `ReadableArray` pelo `ReadableConverter`); ser o `CoreEventSink` (o `emitOnX` de cada nome); ligar-se ao controlador e desligar-se dele | Qualquer regra |
+| Controlador | Repo 1 (`CoreBridge`, `br.com.grupotechnos.watch:bridge`) | Checagens e rejeições antecipadas, `requestId` e liquidação, evento antes do `resolve`, `NO_DATA`, pareamento salvo, quando ligar o FGS, reconexão automática, fila de eventos, ciclo de vida do módulo | Plataforma |
+| Montagem | `CoreGraph.kt` | Montar a sessão, o transporte, o logger, o store, o scanner, o `AndroidCoreHost` e o `CoreBridge` uma vez por processo; ligar scanner, log e `BluetoothStateReceiver` aos ganchos do controlador | Decidir algo |
+| Plataforma | `AndroidCoreHost.kt` | O `CoreHost`: permissões, Bluetooth ligado, MAC válido, scan, FGS, `PairingPrefs`, cabeçalho da gravação, log em memória e export | Decidir quando |
 | Transporte | `ble/` | `BluetoothGatt`, fila GATT, scan, estado do adaptador, FGS do sync | Decidir quando reconectar ou desistir |
-| Ponte | `bridge/` | Domínio → payload JS, estado → código, fila de eventos, `requestId` | IO |
+| Ponte RN | `bridge/` | `WritableConverter` (payload → `WritableMap`), `ReadableConverter` (`ReadableArray` → `List`), `PromiseCompletion` | Mapear o domínio (é o `EventMapper` do Repo 1) |
 | Persistência | `store/` | Histórico (`SampleStore`) em JSON, último pareamento | Agregação, poda |
 | Log | `log/` | Anel, Logcat, `onLog`, gravação de frames | Envio a servidor |
 | Protocolo | Repo 1 (`br.com.grupotechnos.watch:protocol`) | Máquina de estados, handshake BIND/LOGIN, codec SMA, sync, agregação de passos, análise de sono | Plataforma |
 
 ```
-JS (TechnosCore)  ──métodos──▶  NativeCoreNextModule ──▶ WatchSession (Repo 1)
-       ▲                              │                    │        ▲
-       │ eventos (emitOnX)            │ RequestRegistry    │Transport│TransportEvents
-       │                              ▼                    ▼        │
-  PendingEvents ◀── CoreSessionListener ◀─WatchSessionListener   AndroidGattTransport ──▶ BluetoothGatt
-                                                           │
-                                               RingLogger / FileSampleStore
+JS (TechnosCore, TechnosEvents)
+   │ métodos (Promise)                        ▲ eventos (emitOnX)
+   ▼                                          │
+NativeCoreNextModule ── casca: PromiseCompletion, ReadableConverter, WritableConverter; é o CoreEventSink
+   │ um método = uma chamada                  ▲ emit(nome, payload)
+   ▼                                          │
+CoreBridge (Repo 1, :bridge) ── regras, RequestRegistry, PendingEvents, listener da sessão
+   │ comandos         ▲ WatchSessionListener        │ CoreHost (consultas e efeitos)
+   ▼                  │                             ▼
+WatchSession (Repo 1, :protocol)             AndroidCoreHost ── BlePermissions, BleScanner, SyncForegroundService,
+   │ Transport        ▲ TransportEvents                         PairingPrefs, FrameRecorder, RingLogger
+   ▼                  │
+AndroidGattTransport ──▶ BluetoothGatt
+(o RingLogger e o FileSampleStore são o WatchLogger e o SampleStore da sessão)
 ```
+
+## O que mora onde
+
+O host Android já teve as regras: até 2026-10-29, o `NativeCoreNextModule`, o `CoreSessionListener` e o `CoreGraph`
+decidiam o que cada método JS fazia, e o `bridge/` daqui tinha o mapeamento. Tudo isso passou para o `:bridge` do
+Repo 1 (ADRs 20 e 21 de lá), para o iOS usar o mesmo código. O que o JavaScript vê não mudou.
+
+| Antes, no host Android | Agora |
+|---|---|
+| `NativeCoreNextModule`: checagens, registro do pedido, `NO_DATA`, leitura do `deletedSavedData`, `getLogs`, `setLogLevel` | `CoreBridge` (o método de mesmo nome); o módulo só delega |
+| `CoreSessionListener` (efeitos, evento, liquidação) | o listener interno do `CoreBridge` |
+| `CoreGraph`: `userDisconnected`, `emitCurrentState`, `emitError`, `resolveProfile`, `sleepHistoryDays`, `reconnectIfPaired`, a fila e os pedidos | `CoreBridge` |
+| `CoreGraph.exportLogs` | `AndroidCoreHost.exportLogs` |
+| `bridge/EventMapper`, `StateMapper`, `SavedDataMapper`, `HostErrorCodes`, `PendingEvents`, `RequestRegistry` e os 25 testes deles | `:bridge` do Repo 1, mesmos nomes; os 25 testes, com os mesmos nomes, no `commonTest` de lá (rodam também no simulador iOS) |
+| `bridge/WritableConverter` | igual, aqui |
+| — | `AndroidCoreHost`, `bridge/ReadableConverter`, `bridge/PromiseCompletion` (novos) |
+
+**O que mudou para quem lê o log.** As linhas das regras têm a tag `CoreBridge/<método>`: `CoreGraph/emitError` →
+`CoreBridge/emitError`, `CoreGraph/reconnectIfPaired` → `CoreBridge/reconnectIfPaired`,
+`CoreSessionListener/onStateChanged` → `CoreBridge/onStateChanged`, `CoreSessionListener/stopSyncService` →
+`CoreBridge/stopSyncWork`, `NativeCoreNextModule/deletedSavedData` → `CoreBridge/deletedSavedData`,
+`NativeCoreNextModule/setLogLevel` → `CoreBridge/setLogLevel`; a do export, `CoreGraph/exportLogs` →
+`AndroidCoreHost/exportLogs`. As mensagens são as mesmas. `CoreGraph/init` e as tags de `ble/`, `store/` e `log/` não
+mudaram.
+
+**Prova de que o JS vê o mesmo.** No Repo 1, um teste de contrato por regra do host antigo e o golden da gravação real
+do fitGPS passando pelo `CoreBridge` (seção 13 de lá). Aqui, os testes JVM do que é Android: `AndroidCoreHostTest`
+(o `"Missing BLUETOOTH_CONNECT"` e as conversões para os tipos do `:bridge`), `ReadableConverterTest`,
+`PromiseCompletionTest` e `DeletedSavedDataEquivalenceTest`, que roda o código antigo do módulo, copiado sem mudança,
+contra `ReadableConverter` + `CoreBridge` (sobre uma `WatchSession` de verdade) em 2.100 arrays aleatórios e três
+fusos, e exige as mesmas linhas de log. O resto do módulo e do `AndroidCoreHost` é delegação de uma linha, que só um
+aparelho exercita (checklist do [`example/README.md`](../example/README.md#checklist-de-aceite-com-o-fitgps)).
 
 ## Ciclo de vida
 
 - **Grafo por processo.** `CoreGraph.get(context)` cria `WatchSession(AndroidGattTransport, RingLogger,
-  FileSampleStore)` na primeira chamada de qualquer método JS (normalmente `initialize()`), registra o
-  `BluetoothStateReceiver` no `applicationContext` e vive até o processo morrer. O TurboModule é recriado a cada
-  reload do JS; o link BLE e um sync em andamento não caem junto.
-- **Módulo por instância React.** Ao ser usado, o módulo se liga como destino de eventos (`PendingEvents.attach`).
-  Em `invalidate()` ele se desliga e rejeita com `CANCELLED` as Promises ainda pendentes (o JS que as esperava
-  não existe mais).
+  FileSampleStore)`, liga o transporte à sessão, cria o `CoreBridge` com o `AndroidCoreHost` (o construtor do
+  controlador liga o listener da sessão) e registra o `BluetoothStateReceiver` no `applicationContext`, na primeira
+  chamada de qualquer método JS (normalmente `initialize()`), e vive até o processo morrer. O TurboModule é recriado a
+  cada reload do JS; o link BLE e um sync em andamento não caem junto.
+- **Módulo por instância React.** Na primeira chamada de um método JS, o módulo se liga ao controlador como destino de
+  eventos (`CoreBridge.attach`, que entrega a fila); as chamadas seguintes não religam. Em `invalidate()` ele chama
+  `CoreBridge.invalidate`, que o desliga (se ainda for o atual) e rejeita com `CANCELLED` (`"Module invalidated"`) as
+  Promises ainda pendentes, porque o JS que as esperava não existe mais. Um módulo que nunca foi usado não chama nada.
 - **`initialize()`/`initSMASDK()`** são idempotentes: criam o grafo se preciso, reenviam o estado atual da sessão
-  como `onConnectStateChanged` (`CoreGraph.emitCurrentState`; sem isso um JS recarregado com o relógio já `READY`
-  ficaria sem estado até a próxima transição) e tentam reconectar ao relógio salvo.
+  como `onConnectStateChanged` (o `CoreBridge` relê o estado depois de emitir; sem isso um JS recarregado com o relógio
+  já `READY` ficaria sem estado até a próxima transição) e tentam reconectar ao relógio salvo.
 - **Bluetooth desligado.** O transporte entrega só `onBluetoothStateChanged(false)`, sem `onDisconnected` para o link
   ou a conexão pendente (contrato B, [`transporte-android.md`](transporte-android.md#eventos-de-conexão)), e a sessão
-  vai direto para `BLUETOOTH_OFF` (`state` 4). Se o Bluetooth já está desligado quando o grafo nasce, o `CoreGraph`
-  pede ao transporte o mesmo evento (`reportBluetoothOffAtStartup`), porque o `BluetoothStateReceiver` só avisa
-  transições: sem isso a sessão ficaria em `DISCONNECTED` e o JS veria 0. O evento é assíncrono, então o primeiro
-  `initialize()` pode ainda reenviar 0; o 4 chega depois pela transição (o último evento é sempre o estado atual) e
-  qualquer `emitCurrentState` seguinte já reenvia 4.
+  vai direto para `BLUETOOTH_OFF` (`state` 4). Antes de o transporte agir, o `CoreGraph` avisa o controlador
+  (`onBluetoothTurnedOff`), que para o scan. Se o Bluetooth já está desligado quando o grafo nasce, o `CoreGraph` pede
+  ao transporte o mesmo evento (`reportBluetoothOffAtStartup`), porque o `BluetoothStateReceiver` só avisa transições:
+  sem isso a sessão ficaria em `DISCONNECTED` e o JS veria 0. O evento é assíncrono, então o primeiro `initialize()`
+  pode ainda reenviar 0; o 4 chega depois pela transição (o último evento é sempre o estado atual) e qualquer
+  `initialize()` seguinte já reenvia 4.
 
 ### Reconexão automática
 
 O app Mormaii reconecta hoje pelo JS: `useSdkInit` chama `pairDevice(lastDevice)` sempre que o app volta ao primeiro
-plano (`GTE-Mormaii/src/components/ContextDataInitializer/useSdkInit.ts:15-32`). Aqui isso é nativo e simples,
-em `CoreGraph.reconnectIfPaired`, chamado em três momentos: `initialize()`, `onHostResume` e Bluetooth religado.
-Só reconecta se todas as condições valem:
+plano (`GTE-Mormaii/src/components/ContextDataInitializer/useSdkInit.ts:15-32`). Aqui isso é nativo e simples, no
+`CoreBridge.reconnectIfPaired` do Repo 1, chamado em três momentos: `initialize()`, `onHostResume` e Bluetooth
+religado (o `CoreGraph` chama `onBluetoothTurnedOn` no bloco que o transporte roda depois de entregar o evento à
+sessão, para a reconexão entrar na fila da sessão depois dele). Só reconecta se todas as condições valem:
 
 1. há pareamento salvo em `PairingPrefs` (gravado ao chegar em `READY`, exceto depois de um disconnect/forget do
    usuário; o `forgetDevice` apaga ao ser pedido e de novo quando a sessão conclui o pedido, para um `READY` que
    chegue no meio não regravar o relógio esquecido);
-2. ninguém pediu `disconnectCurrentDevice`/`forgetDevice` neste processo (flag em memória `userDisconnected`,
-   zerada por `pairDevice`/`startPairingAttempt`; num processo novo o relógio volta a ser reconectado);
+2. ninguém pediu `disconnectCurrentDevice`/`forgetDevice` neste processo (flag em memória `userDisconnected` do
+   `CoreBridge`, zerada por `pairDevice`/`startPairingAttempt`; num processo novo o relógio volta a ser reconectado);
 3. a sessão está em `DISCONNECTED` ou `BLUETOOTH_OFF`;
-4. Bluetooth ligado e `BLUETOOTH_CONNECT` concedida.
+4. Bluetooth ligado e `BLUETOOTH_CONNECT` concedida (`AndroidCoreHost.isBluetoothEnabled` e
+   `missingConnectPermission`).
 
 A reconexão usa `session.reconnect(...)` com um `requestId` interno (sem Promise): falhas saem como `onError` com
 `method: null`. Quando o link cai depois de `READY`, quem reconecta é a sessão do Repo 1 (`connect(address, true)`
@@ -73,10 +122,12 @@ o relógio recusar o LOGIN, a sessão desiste (`HANDSHAKE_FAILED`, ADR 11 do Rep
 
 | Thread | O que roda |
 |---|---|
-| Módulos nativos do RN | Métodos do TurboModule. `getHistoryPedometer`, `getHistorySleep`, `exportLogs` fazem IO de arquivo pequeno aqui. |
-| Sessão (Repo 1, `Dispatchers.Default.limitedParallelism(1)`) | `WatchSessionListener` (`CoreSessionListener`), `SampleStore` (`FileSampleStore`), `WatchLogger`. Emite eventos JS daqui. |
-| "corenext-gatt" (`HandlerThread`) | Todo o `AndroidGattTransport` e os callbacks do `BluetoothGatt` (o `connectGatt` recebe esse `Handler`). |
-| Main | Callbacks de scan (`BleScanner`), `BroadcastReceiver`, `onHostResume`. |
+| Módulos nativos do RN | Métodos do TurboModule e, dentro deles, o método do `CoreBridge` e as consultas ao `AndroidCoreHost`. `getHistoryPedometer`, `getHistorySleep`, `exportLogs` fazem IO de arquivo pequeno aqui. |
+| Sessão (Repo 1, `Dispatchers.Default.limitedParallelism(1)`) | O `WatchSessionListener` do `CoreBridge` (e os efeitos que ele pede ao `AndroidCoreHost`: pareamento, FGS, cabeçalho da gravação), `SampleStore` (`FileSampleStore`), `WatchLogger`. Emite eventos JS daqui. |
+| "corenext-gatt" (`HandlerThread`) | Todo o `AndroidGattTransport` e os callbacks do `BluetoothGatt` (o `connectGatt` recebe esse `Handler`); o `onBluetoothTurnedOn` do controlador. |
+| Main | Callbacks de scan (`BleScanner`, que chamam `onScannedDevice`/`onScanFailed`), `BroadcastReceiver`, `onHostResume`. |
+
+O `AndroidCoreHost` é chamado de qualquer uma delas; as peças sob ele já são thread-safe (KDoc da classe).
 
 ### Emitir eventos fora da thread JS
 
@@ -89,24 +140,24 @@ Verificado no React Native 0.81.4 (`example/node_modules/react-native`):
   agenda a execução na thread JS pelo `CallInvoker` (`ReactCommon/react/bridging/EventEmitter.h:65-102`).
 
 Conclusão: emitir da thread da sessão é seguro; não há `runOnJSQueueThread`. O que é preciso é não emitir antes do
-callback existir. Por isso o `PendingEvents` só entrega quando `hasActiveReactInstance() && mEventEmitterCallback !=
-null` e guarda até 500 eventos enquanto isso (o mais antigo sai primeiro). `onLog` não entra na fila (volume alto;
-o anel do `RingLogger` já guarda e o `getLogs` lê). Eventos emitidos quando o JS ainda não assinou o emitter se
-perdem, como em qualquer `EventEmitter` do RN: o JS deve assinar antes de chamar o comando (o `getNativeEventData`
-do app já faz assim).
+callback existir. Por isso a fila do `CoreBridge` (`PendingEvents`, no `:bridge`) só entrega quando o `canEmit()` do
+módulo (`hasActiveReactInstance() && mEventEmitterCallback != null`) é `true` e guarda até 500 eventos enquanto isso
+(o mais antigo sai primeiro). `onLog` não entra na fila (volume alto; o anel do `RingLogger` já guarda e o `getLogs`
+lê). Eventos emitidos quando o JS ainda não assinou o emitter se perdem, como em qualquer `EventEmitter` do RN: o JS
+deve assinar antes de chamar o comando (o `getNativeEventData` do app já faz assim).
 
 ## Comandos, Promises e eventos
 
-Todo comando que fala com o relógio segue o mesmo caminho:
+Todo comando que fala com o relógio segue o mesmo caminho, no `CoreBridge`:
 
-1. o módulo valida (permissão, Bluetooth, MAC, nome) e, se algo falha, rejeita na hora e emite `onError` com
-   `requestId: -1` e `method`;
-2. registra a Promise no `RequestRegistry` com o nome do método e recebe um `requestId` (> 0);
+1. confere (pelo `AndroidCoreHost`) permissão, Bluetooth, MAC e nome e, se algo falha, emite `onError` com
+   `requestId: -1` e `method` e depois rejeita;
+2. registra o `PromiseCompletion` no `RequestRegistry` com o nome do método e recebe um `requestId` (> 0);
 3. chama a sessão com esse `requestId`;
 4. a sessão termina **exatamente uma vez** com um callback terminal (`onDeviceInfo`, `onBattery`, `onLiveSteps`,
    `onSyncFinished`, `onCompleted` ou `onError`);
-5. o `CoreSessionListener` emite o evento JS e depois liquida a Promise (`resolve(null)` ou `reject(code, message)`).
-   Todo `onError` de comando também sai como evento `onError` com o `method` do registro.
+5. o listener do `CoreBridge` emite o evento JS e depois liquida a Promise (`resolve(null)` ou `reject(code,
+   message)`). Todo `onError` de comando também sai como evento `onError` com o `method` do registro.
 
 | Método JS | Sessão | Evento | Resolve quando |
 |---|---|---|---|
@@ -132,10 +183,12 @@ gravação de 2026-10-29: passos ao vivo precisam de `refreshSteps()` periódico
 ### `deletedSavedData`
 
 Aceita os itens no formato do spec (`{ category, registered_at }`) e, por compatibilidade, strings puras (o wrapper
-do Core atual manda só as datas, `TechnosWareCore/src/NativeModules/index.ts:763-768`). A categoria do item vale
-mais que a do parâmetro. `5` (PEDOMETER) vira `STEPS`, `0` (SLEEP) vira `SLEEP`, as outras são ignoradas com `WARN`.
-Cada `registered_at` é convertido no dia local do telefone (`SavedDataMapper`): o instante é levado para o fuso do
-telefone antes de pegar a data, porque o app pode devolver datas em UTC. O conjunto de dias vai para
+do Core atual manda só as datas, `TechnosWareCore/src/NativeModules/index.ts:763-768`). O módulo converte o
+`ReadableArray` com o `ReadableConverter` (pelo `getType` de cada item: número como `Double`, mapa como `Map`) e o
+`CoreBridge` lê os itens: a categoria do item vale mais que a do parâmetro; `5` (PEDOMETER) vira `STEPS`, `0`
+(SLEEP) vira `SLEEP`, as outras são ignoradas com `WARN`; qualquer outro tipo de item é ignorado sem log. Cada
+`registered_at` é convertido no dia local do telefone (`SavedDataMapper` do `:bridge`): o instante é levado para o
+fuso do telefone antes de pegar a data, porque o app pode devolver datas em UTC. O conjunto de dias vai para
 `confirmUploaded`, que tira esses dias de `getHistoryPedometer`/`getHistorySleep`.
 
 ## Códigos de erro
@@ -143,7 +196,7 @@ telefone antes de pegar a data, porque o app pode devolver datas em UTC. O conju
 Os da sessão (`WatchErrorCodes` do Repo 1): `NOT_READY`, `UNSUPPORTED_DEVICE`, `CONNECT_TIMEOUT`,
 `GATT_NOT_SUPPORTED`, `HANDSHAKE_FAILED`, `TIMEOUT`, `PROTOCOL`, `NO_DATA`, `TRANSPORT`, `DISCONNECTED`,
 `CANCELLED` e `BUSY` (este reservado: a sessão não o emite, um pareamento novo cancela o anterior com
-`CANCELLED`, ADR 13 do Repo 1). Os que nascem no host Android (`bridge/HostErrorCodes.kt`):
+`CANCELLED`, ADR 13 do Repo 1). Os que nascem antes de chamar a sessão (`HostErrorCodes` do `:bridge`, Repo 1):
 
 | Código | Quando |
 |---|---|
@@ -163,5 +216,7 @@ scan falha, com o `errorCode` do Android na mensagem).
 
 ## Serviço em primeiro plano
 
-Só durante o sync: sobe em `onSyncStarted` e desce em `onSyncFinished`, no `onError` do sync ou quando a sessão sai
-de `READY`/`SYNCING`. Detalhes e limites em [`transporte-android.md`](transporte-android.md#serviço-em-primeiro-plano-só-no-sync).
+Só durante o sync: o `CoreBridge` pede `startSyncWork` em `onSyncStarted` e `stopSyncWork` em `onSyncFinished`, no
+`onError` do sync ou quando a sessão sai de `READY`/`SYNCING`; o `AndroidCoreHost` sobe e desce o
+`SyncForegroundService`. Detalhes e limites em
+[`transporte-android.md`](transporte-android.md#serviço-em-primeiro-plano-só-no-sync).

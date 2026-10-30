@@ -1,33 +1,33 @@
 # `bridge/`
 
-Tradução entre o domínio do Repo 1 e o que o JavaScript recebe. Quase tudo aqui é Kotlin puro, testado na JVM.
+O lado React Native da ponte: converte entre os tipos do RN e os valores puros que o `CoreBridge` do Repo 1 (pacote
+`br.com.grupotechnos.watch.bridge`, módulo `:bridge`) recebe e devolve. O mapeamento do domínio para os payloads
+(`EventMapper`), os estados, o `deletedSavedData`, os códigos de erro do host, a fila de eventos e os pedidos em
+andamento estavam aqui até 2026-10-29 e hoje moram lá (`docs/arquitetura.md`, "O que mora onde").
 
 ## Tipos
 
 | Tipo | Papel |
 |---|---|
-| `EventMapper` | Domínio → `Map<String, Any?>` nos formatos de `src/types/events.ts` (mesmos nomes do Core atual). Datas ISO `yyyy-MM-dd'T'HH:mm:ssXXX`. |
-| `WritableConverter` | `Map`/`List` → `WritableMap`/`WritableArray` (precisa do runtime do RN; único arquivo daqui não testado na JVM). |
-| `StateMapper` | `ConnectionState` → `deviceConnectStates`: `DISCONNECTED`/`RECONNECTING` 0, `CONNECTING`/`CONFIGURING`/`HANDSHAKING` 1, `READY`/`SYNCING` 2, `BLUETOOTH_OFF` 4. |
-| `PendingEvents` | Fila de eventos até o módulo poder emitir (callback do codegen instalado e instância React ativa). Não troca de thread: emitir da thread da sessão é seguro no RN 0.81. |
-| `RequestRegistry` | `requestId` → Promise + nome do método, liquidado uma única vez. |
-| `SavedDataMapper` | `deletedSavedData`: categoria (5 passos, 0 sono) → `DataKind`; `registered_at` ISO → dia local. |
-| `HostErrorCodes` | Códigos que nascem no host: `PERMISSION_DENIED`, `BLUETOOTH_OFF`, `INVALID_ARGUMENT`, `IO_ERROR`. |
+| `WritableConverter` | `Map`/`List` → `WritableMap`/`WritableArray` (os payloads dos eventos e os retornos com objeto). Precisa do runtime nativo do RN; não é testado na JVM. |
+| `ReadableConverter` | `ReadableArray`/`ReadableMap` → `List`/`Map` pelo `getType` de cada valor (número sempre `Double`), para o `deletedSavedData`. Não usa o `toArrayList()`, cujo tipo de item varia com a implementação (o `JavaOnlyArray` devolve o `JavaOnlyMap` aninhado, que não é `java.util.Map`). |
+| `PromiseCompletion` | A `Promise` do RN como `CoreCompletion`: mapas e listas pelo `WritableConverter`, o resto (`null`, `Boolean`, `String`) como está; `reject(code, message)`. |
 
 ## Não faz
 
-Não conhece BLE nem arquivo. Não decide nada sobre o relógio: só muda forma de dado.
+Não decide nada (é o `CoreBridge`), não conhece BLE nem arquivo, não mapeia o domínio.
 
 ## Depende de
 
-Repo 1 (`domain/`, `profile/`, `log/`), `react-android` só em `WritableConverter`. Usado pelo módulo, pelo
-`CoreGraph` e pelo `CoreSessionListener`.
+`react-android` e o `:bridge` do Repo 1 (`CoreCompletion`). Usado pelo `NativeCoreNextModule`.
 
 ## Invariantes
 
-- Os nomes de campo seguem `src/types/events.ts`. Mudou lá, muda aqui no mesmo PR (e o `EventMapperTest`).
-- Inteiros saem como `Int`, decimais como `Double`, `Long` (epoch millis) como `Double`.
+- Os tipos de valor que entram no `WritableConverter` são os do `EventMapper` do Repo 1: inteiros como `Int`,
+  decimais como `Double`, `Long` (epoch millis) como `Double`, `String`, `Boolean`, `null`, mapas e listas.
+- Um `PromiseCompletion` por chamada JS; o `CoreBridge` chama `resolve` ou `reject` uma vez só.
 
 ## Testes
 
-`EventMapperTest`, `StateMapperTest`, `SavedDataMapperTest`, `PendingEventsTest`, `RequestRegistryTest`.
+`ReadableConverterTest` e `PromiseCompletionTest` (o caminho sem mapa nem lista; o resto precisa da biblioteca nativa
+do RN). O `ReadableConverter` também passa pelo `DeletedSavedDataEquivalenceTest` da raiz.

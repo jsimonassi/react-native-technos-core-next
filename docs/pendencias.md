@@ -48,8 +48,9 @@ cada progresso ficaria cerca de 58 s sem evento durante o sono.
    protocolo. Não serve parar a paginação nas páginas antigas: o relógio entrega da mais antiga para a mais nova, então
    isso nunca chegaria às noites recentes.
 3. **Prioridade de conexão alta durante o sync.** Neste repositório: pedir
-   `BluetoothGatt.requestConnectionPriority(CONNECTION_PRIORITY_HIGH)` quando o sync começa (o mesmo ponto em que o
-   `CoreSessionListener.onSyncStarted` liga o serviço em primeiro plano) e voltar a `BALANCED` no fim. A SDK SMA faz
+   `BluetoothGatt.requestConnectionPriority(CONNECTION_PRIORITY_HIGH)` quando o sync começa (no
+   `AndroidCoreHost.startSyncWork`, que o `CoreBridge` chama no `onSyncStarted` e onde o serviço em primeiro plano
+   sobe) e voltar a `BALANCED` no `stopSyncWork`. A SDK SMA faz
    isso nas transferências grandes (`requestHighSpeedMode`, `SmaManager.java:1458`, que chama
    `requestConnectionPriority` em `SmaMessenger.java:163`; usado em `:485`, `:1131` e `:1191`), mas nunca na leitura
    de histórico. Não testado: medir a duração por página com e sem, no mesmo relógio.
@@ -88,10 +89,32 @@ ou mascarar o MAC antes.
 
 ## 4. iOS
 
-Nada do iOS existe além do podspec (iOS 15.1). O que falta e as armadilhas estão em
+Nada do host iOS existe além do podspec (iOS 15.1). O que falta e as armadilhas estão em
 [`ios-pendente.md`](ios-pendente.md). Da gravação, o que já vale para o iOS: o transporte segue o contrato B do
 Bluetooth desligado (`.poweredOff` sem `onDisconnected`); o scan tem que ser sem filtro de serviço (o fitGPS não
-anuncia o NUS); com MTU 23 os dois caminhos de tamanho de fragmento dão 20 bytes.
+anuncia o NUS).
+
+Já resolvido no Repo 1, sem relógio (2026-10-29; `docs/pendencias.md` de lá, seção "iOS"):
+
+- **Bytes**: a ponte do `iosMain` (`value.toData()`, `session.events.onNotification(characteristic:data:)`,
+  `session.events.onReadCompleted(requestId:data:status:)`, `ByteBridgeKt.toByteArray(data)`), conferida no Swift pelo
+  `checkSwiftInterop` de lá ([`ios-pendente.md`](ios-pendente.md#bytes-nsdata--kotlinbytearray)).
+- **MTU**: o `CentralTransport` responde `requestMtu` com `maximumWriteValueLength(for: .withoutResponse) + 3`, nunca
+  com o valor de `.withResponse`; com o fitGPS 0.2.1 (MTU 23) o iOS manda fragmentos de 20 bytes, como o Android
+  (ADR 5 do Repo 1, emenda).
+- **Protocolo e threading no Kotlin/Native**: a gravação real reproduz no simulador iOS, também em tempo real no
+  dispatcher de produção com os eventos vindos de uma fila GCD serial
+  ([`ios-pendente.md`](ios-pendente.md#threading-visto-pelo-host-ios)).
+- **Regras de cada método JS**: o `CoreBridge` do `:bridge` faz tudo o que o host Android fazia, em código comum e
+  testado no simulador, e o host Android deste repositório já é só uma casca sobre ele
+  ([`arquitetura.md`](arquitetura.md#o-que-mora-onde)). O shim iOS só chama o controlador, e o Swift implementa o
+  `CoreHost` e o transporte ([`ios-pendente.md`](ios-pendente.md#sem-regra-no-host)).
+
+Continua em aberto, nesta ordem: pod e shim ObjC++, ponte Swift e persistência (`CoreGraph` com o `CoreHost`, store,
+preferências, logger), export do log, `CentralTransport` sobre `CoreBluetooth`, H8 com uma gravação iOS, e segundo
+plano e restauração. Neste último, a espera crescente da reconexão é um `delay` na sessão do Repo 1, sem `connect`
+pendente no host, e não anda com o app suspenso: no iOS a espera deveria ser o próprio `connect` pendente
+([`ios-pendente.md`](ios-pendente.md#outras-diferenças-a-cobrir)).
 
 ## 5. Lacunas da integração com o app Mormaii
 
@@ -133,7 +156,8 @@ passa por ele, ou este repositório ganha assinaturas vazias (que nunca disparam
 
 ### Outros
 
-- O artefato do Repo 1 só existe no `mavenLocal` (`CLAUDE.md`); integrar no app exige publicar fora dele.
+- Os artefatos do Repo 1 (`bridge` e `protocol`) só existem no `mavenLocal` (`CLAUDE.md`); integrar no app exige
+  publicar fora dele.
 - Integração atrás de uma flag para o fitGPS, só depois de fechar o item 1.
 
 ## 6. Pequenos itens do host

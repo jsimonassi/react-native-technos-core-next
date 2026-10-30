@@ -226,10 +226,11 @@ class AndroidGattTransport(
 	 * pendentes, fecha o GATT e para o transporte **sem** `onDisconnected`, nem para o link aberto nem para a conexão
 	 * pendente; depois entrega só `onBluetoothStateChanged(false)`. Um `disconnect()` seguinte e os callbacks atrasados
 	 * do GATT fechado não emitem nada até um `connect()` novo.
-	 * Ao ligar: só repassa; quem decide reconectar é o `CoreGraph`.
+	 * Ao ligar: só repassa; quem decide reconectar é o `CoreBridge` do Repo 1.
 	 *
 	 * @param afterDelivered roda na thread do GATT depois de o evento ir para a sessão; o `CoreGraph` usa para
-	 * pedir a reconexão só depois de a sessão saber que o Bluetooth voltou (os eventos entram em ordem na fila dela).
+	 * avisar o `CoreBridge` (`onBluetoothTurnedOn`) só depois de a sessão saber que o Bluetooth voltou (os eventos
+	 * entram em ordem na fila dela).
 	 */
 	fun onBluetoothStateChanged(enabled: Boolean, afterDelivered: (() -> Unit)? = null) {
 		handler.post {
