@@ -73,7 +73,7 @@ Cada pasta de `android/.../corenext/` tem um `README.md` com o que faz, o que n�
 | [`docs/api-js.md`](docs/api-js.md) | Cada método e evento, com payload de exemplo e o equivalente no Core atual |
 | [`docs/transporte-android.md`](docs/transporte-android.md) | Fila GATT, autoConnect, MTU, CCCD, write type, Bluetooth on/off e limites conhecidos |
 | [`docs/ios-pendente.md`](docs/ios-pendente.md) | O que falta para o iOS e as armadilhas já mapeadas |
-| [`docs/pendencias.md`](docs/pendencias.md) | Pendências do host e da integração com o app Mormaii (sync de 59 s contra o watchdog de 50 s, polling de passos, `deviceId`, eventos sem equivalente) |
+| [`docs/pendencias.md`](docs/pendencias.md) | Pendências do host e da integração com o app Mormaii (sync de 59 s contra o watchdog de 50 s, polling de passos, `deviceId`, eventos sem equivalente) e o achado de que o Core de produção provavelmente infla os passos do fitGPS no backend |
 | [`example/README.md`](example/README.md) | Rodar o exemplo, permissões, exportar o log, checklist com o relógio |
 | [`src/README.md`](src/README.md) | Arquivos da camada JS |
 | [`ios/README.md`](ios/README.md) | Como o XCFramework do Repo 1 entra no pod (futuro) |

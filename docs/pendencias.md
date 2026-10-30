@@ -5,7 +5,7 @@ O que falta no Repo 2 e na integração com o app Mormaii, levantado a partir da
 [`transporte-android.md`](transporte-android.md#o-que-a-gravação-do-fitgps-mostrou).
 
 A **validação no relógio** que ainda falta (dois syncs seguidos para ver se o sono é apagado depois de lido; disconnect,
-forget e novo pareamento olhando a tela no BIND; caminhada cruzando uma hora cheia para o H3; robustez do link; H8 com o
+forget e novo pareamento olhando a tela no BIND; caminhada cruzando uma hora cheia, para ver como a hora fecha; robustez do link; H8 com o
 app Mormaii iOS; uma noite de sono) foi adiada: o sono já não funcionava no Core atual e isto é uma prova de conceito. O
 roteiro fica no [`docs/pendencias.md` do Repo 1](../../technos-watch-protocol/docs/pendencias.md), junto com as
 pendências de protocolo; este documento não o repete.
@@ -117,6 +117,49 @@ pendente no host, e não anda com o app suspenso: no iOS a espera deveria ser o 
 ([`ios-pendente.md`](ios-pendente.md#outras-diferenças-a-cobrir)).
 
 ## 5. Lacunas da integração com o app Mormaii
+
+### Achado (2026-10-29): o Core de produção provavelmente infla os passos do fitGPS no backend
+
+**Só documentação.** Nada muda no app Mormaii nem no `TechnosWareCore` por causa desta PoC; o achado fica aqui para quem
+cuida da produção.
+
+**Visto no relógio.** No fitGPS com firmware 0.2.1, o registro `mode 0` do `05/42` é o **acumulado do dia**, não o total
+da hora (hipótese H3 do Repo 1, refutada em 2026-10-29; ADR 1 do
+[`docs/decisoes.md` de lá](../../technos-watch-protocol/docs/decisoes.md)). A gravação da manhã termina com 56 passos às
+08:31:22 (`atMs` 1032178 de `technos-watch-protocol/fixtures/real/fitgps/0.2.1/pair-commands-bt-reconnect-sync.jsonl`),
+o registro ao vivo da noite ainda tem 56 às 21:37:37 e 21:37:47 (`atMs` 29133 e 38440 de
+`pair-commands-sync-bt-reconnect-disconnect-reconnect.jsonl`), e o usuário confirmou no aparelho que o relógio ficou
+parado o dia todo e que a tela mostrava 56 passos no dia.
+
+**O que o Core de produção faz.** O Android arredonda cada `mode 0` para a hora cheia, guarda o último de cada hora
+(`TechnosWareCore/android/src/main/java/com/sma/bluetooth/SMAService.java:437-448`, gravado em `:453`) e soma as horas
+de cada dia em `getHistoryPedometer` (`:859-866`); o iOS faz o mesmo (chave por hora em
+`TechnosWareCore/ios/smaBluetooth/SMAService.m:1277-1288`, soma por dia em `:334-342`). Com um acumulado do dia, isso
+soma um instantâneo do acumulado por hora com registro: em 2026-10-29, um telefone que tivesse lido o relógio de manhã
+e à noite mandaria 56 + 56 = 112 para um dia de 56 passos. Como o Core faz polling de `05/41` a cada 10 s com o app
+aberto (`SMAService.java:547-603`) e o relógio sempre responde com um registro ao vivo (seção 6 do
+[`docs/sma-dados.md` do Repo 1](../../technos-watch-protocol/docs/sma-dados.md)), cada hora com o app aberto vira mais
+uma parcela; com N horas, o total chega a até N vezes o real (N quando todos os passos vêm antes da primeira hora com
+registro, como em 2026-10-29; cerca de (N+1)/2 com os passos espalhados por igual entre as horas com registro).
+Calorias e distância somam do mesmo jeito. Só o histórico soma: ao vivo, o próprio Core de produção mostra o `step`
+do registro mais recente (`SMAService.java:387-405`), que é o acumulado do dia, e mede a corrida pela diferença entre
+dois registros (`:407-408`).
+
+**Consequência provável.** Os passos diários do fitGPS que o app de produção manda ao backend estão inflados
+(`POST /steps_monitor`: `src/services/Api/Pedometer.ts:5` do app, com `smart_watch_slug` = slug do relógio, `b3` no
+fitGPS, em `src/mappers/entities/pedometer.ts:50-64`). Não foi conferido: não há acesso ao banco.
+
+**Como conferir** (no backend, `/Users/joao.farias/smartBackend`, só leitura do código até aqui): os registros ficam na
+coleção Mongo `steps_monitors` (`src/Infrastructure/Repositories/MongoRepository.cs:30`; entidade
+`src/Domain/Health/StepsMonitor.cs`, com `SmartWatchId`), e o fitGPS é o `SmartWatch` de slug `b3`
+(`src/Domain/Watches/SmartWatch.cs`). Comparar a distribuição de `Steps` por dia do fitGPS com a de outros modelos
+(mediana, percentil 95, dias acima de 50 mil passos): um fitGPS inflado aparece com dias muito maiores, e maiores quanto
+mais tempo o app ficou aberto. O mesmo vale para `Calories` e `Distance`.
+
+**O que muda neste repositório.** Nada: o Repo 1 usa o acumulado do dia (`DAY_CUMULATIVE`, o maior valor do dia), e
+este Core manda o total que a tela do relógio mostra. Na troca do app para este Core, os passos diários do fitGPS vão
+cair em relação ao que o backend já tem para o mesmo usuário; avisar quem acompanha metas, gráficos e medalhas (o
+backend calcula medalhas a partir dos `steps_monitors`, `src/Application/Jobs/Medals/DataManagers/HistoryStepsDataLoader.cs`).
 
 ### `deviceId`: MAC no Android, UUID no iOS
 

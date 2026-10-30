@@ -369,8 +369,8 @@ sub.remove();`. Tipos em `src/types/events.ts`.
 | `onDeviceInfo` | `DeviceInfoEvent` | `getDeviceInfo()` | não existe para SMA |
 | `onFirmwareInfo` | `FirmwareInfoEvent` | `getFirmwareInfo()` | igual (`deviceId` agora preenchido) |
 | `onBatteryStatus` | `BatteryStatusEvent` | `getBatteryStatus()` | igual |
-| `onPedometer` | `PedometerEvent` | `refreshSteps()`, aviso do relógio | `pedometer` muda de significado |
-| `onHistoryPedometer` | `HistoryPedometerEvent` | `getHistoryPedometer()` | igual ao Core iOS |
+| `onPedometer` | `PedometerEvent` | `refreshSteps()`, aviso do relógio | mesmo `pedometer` no fitGPS 0.2.1 (o acumulado do dia), com calorias e distância no mesmo evento |
+| `onHistoryPedometer` | `HistoryPedometerEvent` | `getHistoryPedometer()` | formato igual ao Core iOS; totais do fitGPS menores (o Core atual soma as horas, [`pendencias.md`](pendencias.md), seção 5) |
 | `onHistorySleep` | `HistorySleepEvent` | `getHistorySleep()` | nunca emitido para SMA |
 | `onSyncStarted` | `{}` | início do sync | simulado |
 | `onSyncProgress` | `SyncProgressEvent` | por etapa do sync | simulado |
@@ -496,9 +496,10 @@ do fitGPS 0.2.1 o relógio não mandou nenhum `02/70`, nem em cerca de 384 s e 2
 export `frames-20261029-083254.jsonl`): para passos ao vivo, chame `refreshSteps()` periodicamente, como o Core atual
 faz a cada 10 s (`SMAService.java:547-603`).
 
-Core atual: `{ pedometer }`, com o `step` do registro mais recente lido pelo polling, não o total do dia
-(`SMAService.java:387-456`); calorias e distância saem em eventos separados (`onCalories`, `onDistance`), que não
-existem aqui. Calorias e distância usam o mesmo perfil fixo do Core atual (60 kg, 173,5 cm).
+Core atual: `{ pedometer }`, com o `step` do registro mais recente lido pelo polling (`SMAService.java:387-405`). No
+fitGPS 0.2.1 esse valor é o acumulado do dia (ADR 1 do Repo 1), o mesmo número que este evento traz e que a tela do
+relógio mostra. Calorias e distância saem em eventos separados (`onCalories`, `onDistance`), que não existem aqui.
+Calorias e distância daqui usam o mesmo perfil fixo do Core atual (60 kg, 173,5 cm).
 
 ### `onHistoryPedometer`
 
@@ -525,6 +526,9 @@ interface HistoryPedometerEvent {
 
 Core atual: mesmo formato, mas o Android põe em `date` a hora do **primeiro** registro do dia (ex.:
 `T07:00:00-03:00`) e o iOS o início do dia; distância `double` no Android e inteiro no iOS (`SMAService.m:301-369`).
+Os totais diferem no fitGPS: os dois Cores atuais somam as horas do dia, e com o acumulado do dia do firmware 0.2.1
+isso conta o acumulado de novo a cada hora com registro; aqui o total do dia é o maior valor do dia, o da tela do
+relógio ([`pendencias.md`](pendencias.md), seção 5).
 A referência aqui é o iOS (início do dia) com distância `double`. O app faz `moment(date).toISOString()`
 (`GTE-Mormaii/src/mappers/entities/pedometer.ts:40-48`) e absorve a diferença.
 
