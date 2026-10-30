@@ -233,6 +233,13 @@ scan não devolve nada sem localização), `BLUETOOTH_CONNECT`, `FOREGROUND_SERV
 - **Re-arme da conexão pendente depende de `disconnect()`.** Uma conexão pendente que nunca conectou só é cancelada
   por `Transport.disconnect()` ou Bluetooth desligado. A sessão do Repo 1 sempre chama `disconnect()` quando desiste
   de uma tentativa que ainda não conectou; depois de uma queda de link o transporte já parou sozinho.
+- **Vínculo do sistema apagado no relógio não é tratado.** No iPhone, um bond que o relógio apagou (ele foi pareado com
+  outro telefone) faz toda conexão falhar com `CBError.peerRemovedPairingInformation`, que o host iOS entrega como
+  `GattStatus.PAIRING_REMOVED`; a sessão para com `PAIRING_REMOVED` (ADR 23 do Repo 1). O par no Android (um
+  `BluetoothDevice` com `BOND_BONDED` cujas chaves o relógio apagou) não foi visto, e não se sabe que status o
+  `BluetoothGatt` entrega nem se o sistema refaz o pareamento sozinho. Este transporte não cria nem remove bonds
+  (`createBond`/`removeBond`, este só por reflexão) e repassa o status nativo: a sessão trata como uma falha comum
+  (`DISCONNECTED` no pareamento, espera crescente na reconexão). Fica para quando o caso aparecer num Android.
 - **`autoConnect` em OEMs.** O scan por MAC cobre o caso do cache vazio; outros problemas de OEM não foram testados.
 - **Processo morto.** Sem FGS permanente, o Android pode matar o processo em segundo plano (risco 10).
 - **minSdk 26.** O transporte usa `connectGatt` com `Handler` (API 26) e `java.time`; um app com minSdk menor não

@@ -2,7 +2,7 @@
 
 App React Native 0.81.4 (a mesma versão do app Mormaii) para validar o `react-native-technos-core-next` com o relógio
 de verdade. É o equivalente ao `examples/basic` do Core atual, reduzido ao escopo da PoC: Mormaii fitGPS e Mormaii Life
-Ultra GPS (iDO, funções básicas), Android.
+Ultra GPS (iDO, funções básicas), Android e iPhone ([Rodar no iPhone](#rodar-no-iphone)); o mesmo JS nos dois.
 
 A biblioteca é ligada da raiz do repositório, sem cópia em `node_modules`: `react-native.config.js` (autolinking),
 `metro.config.js` (`watchFolders`/`extraNodeModules`), `tsconfig.json` (`paths`) e `jest.config.js`
@@ -34,6 +34,100 @@ npm run android           # terminal 2: build, instala e abre no celular conecta
 
 `adb devices` precisa listar o aparelho como `device`. Para ver o log nativo junto: `adb logcat -s CoreNext`.
 
+## Rodar no iPhone
+
+O simulador não tem Bluetooth: o teste com relógio é num iPhone físico (iOS 15.1 ou mais novo), assinado com o seu
+Apple ID. Na primeira vez leva uns 20 minutos.
+
+1. **Mac**: Xcode 26 (abra uma vez e aceite os componentes), CocoaPods (`pod --version`), Node 20+, JDK 17 (o
+   `--build` do passo 2 roda o Gradle e o Kotlin/Native do Repo 1; `java -version` tem de dizer 17) e o clone do
+   `technos-watch-protocol` ao lado deste repositório (`../technos-watch-protocol`), ou a variável
+   `TECHNOS_WATCH_PROTOCOL_DIR` apontando para ele. A primeira geração do framework baixa o Kotlin/Native e leva vários
+   minutos.
+2. **Framework e dependências**, na raiz do repositório:
+
+   ```sh
+   ios/scripts/sync-xcframework.sh --build   # gera o TechnosWatchProtocol.xcframework no Repo 1 e copia para ios/Frameworks/
+   cd example && npm install
+   cd ios && pod install                      # roda também o codegen do TurboModule
+   xed .                                      # abre o CoreNextExample.xcworkspace no Xcode (nunca o .xcodeproj)
+   ```
+
+3. **Conta**: Xcode → Settings → Accounts → `+` → Apple ID. Um Apple ID comum vira um time "Personal Team".
+4. **Assinatura**: no navegador do projeto, `CoreNextExample` → target `CoreNextExample` → Signing & Capabilities →
+   marque "Automatically manage signing" e escolha o seu "(Personal Team)". Troque o **Bundle Identifier** por um só seu
+   (ex.: `br.com.grupotechnos.corenext.example.<seu-nome>`): o time pessoal não registra um identificador que outra conta
+   já usou. Não precisa adicionar capability: o `Info.plist` já tem `bluetooth-central`, que não exige conta paga.
+5. **iPhone**: conecte no cabo, desbloqueie e toque em "Confiar" neste computador. No iOS 16 ou mais novo, ative o
+   Modo Desenvolvedor: Ajustes → Privacidade e Segurança → Modo Desenvolvedor (a opção só aparece depois de o iPhone ter
+   sido visto pelo Xcode) → ligar → reiniciar → "Ativar".
+6. **JS**: em Debug o app carrega o JS do Metro pela rede (iPhone e Mac na mesma Wi-Fi): `cd example && npm start`.
+   Na primeira abertura em Debug o iOS pergunta se o app pode encontrar dispositivos na rede local → Permitir: é por
+   ela que o app chega ao Metro do Mac. Se recusar, o app não carrega o JS; para desfazer: Ajustes → CoreNextExample →
+   Rede Local. Para rodar sem o Mac por perto (demonstração), use Release: Product → Scheme → Edit Scheme → Run → Build
+   Configuration → Release (o JS vai embutido e não há esse pedido).
+7. **Rodar**: escolha o iPhone como destino no topo do Xcode e ⌘R. Na primeira vez o iPhone recusa abrir um app de
+   "desenvolvedor não confiável": Ajustes → Geral → VPN e Gerenciamento de Dispositivo → o seu Apple ID → Confiar, e
+   ⌘R de novo. Com o time pessoal o app vale 7 dias; depois é só rodar de novo pelo Xcode.
+8. **Bluetooth**: ao abrir, o iOS pergunta se o app pode usar o Bluetooth ("O app usa o Bluetooth para encontrar,
+   parear e sincronizar o seu relógio.") → Permitir. Se recusar: Ajustes → CoreNextExample → Bluetooth.
+9. **Antes de cada relógio**: feche o app Mormaii no iPhone e em outros celulares por perto (um relógio conectado a
+   outro app não anuncia nem aceita dois apps). Não pareie o relógio em Ajustes → Bluetooth: o app conecta direto. Se o
+   relógio já aparece em Ajustes → Bluetooth (de um pareamento antigo, pelo app Mormaii de produção, por exemplo) e foi
+   pareado com outro celular depois, esqueça-o ali antes: senão o iOS recusa a conexão (`PAIRING_REMOVED`, em
+   [Problemas comuns](#problemas-comuns)).
+
+**Log nativo**: o console do Xcode (filtre por `CoreNext`) ou o Console.app com o iPhone selecionado e o filtro
+`subsystem:br.com.grupotechnos.corenext`. No Console.app, ligue Ação → Incluir Mensagens de Informação (e Incluir
+Mensagens de Depuração, para o hex dos frames): o Core loga quase tudo em `info` e `debug`, e sem isso só aparecem WARN
+e ERROR. O JS escreve `[CoreNextExample] initialize() resolved` e cada `onConnectStateChanged` no mesmo console (também
+em `info`).
+
+**Exportar no iPhone**: aba Log → `Export` → `Compartilhar arquivo` (AirDrop para o Mac, por exemplo), ou o app
+Arquivos → No meu iPhone → CoreNextExample → corenext, onde ficam o `frames-*.jsonl` e o `logs-*.jsonl`. O
+`frames-*.jsonl` (cabeçalho com `"platform":"ios"`) vira fixture no Repo 1 como no Android
+(`fixtures/real/<perfil>/<fw>/<cenário>.jsonl`, cenário com `ios` no nome, ex.: `ios-pair-info-time-steps-sync.jsonl`).
+No iOS o log não tem MAC (o endereço é um UUID que o iPhone gera para o app), mas o `logs-*.jsonl` continua fora do git:
+as linhas do scan trazem o nome do iPhone e de outros aparelhos por perto.
+
+**Roteiro**: os mesmos [A3–A8](#checklist-de-aceite-com-o-fitgps) (fitGPS) e [I1–I9](#checklist-com-o-life-ultra-gps-ido)
+(Life Ultra GPS), com estas diferenças:
+
+| Item | No iPhone |
+|---|---|
+| A3, I1 | O endereço na lista é um UUID (`6F1C2B8E-…`), não um MAC. A linha do scan no log é `CentralTransport/onScanResult`. Se o relógio não aparecer, anote nome e serviços dessa linha. |
+| A3, I2 | No log: `CentralTransport/connect`, `didConnect … mtu=<n>`, `discoverServices`, `enableNotifications` (no Life Ultra GPS, `0af7` e depois `0af2`); no fitGPS, `requestMtu requested=247 effective=<n>`: anote o `<n>` (esperado 23; foi 23 em 2026-10-30). Anote também as linhas `discoverServices service=… characteristics=[…]`: as propriedades do `0af6` (Life Ultra GPS) e do `6e400002` (fitGPS). Nenhum `CentralTransport/write` com status de erro nem WARN `… declares [...]`. |
+| A5, I5 | Hora manual no iPhone: Ajustes → Geral → Data e Hora → desligue "Ajustar Automaticamente". Volte depois. |
+| A7, I7 | Desligue o Bluetooth em Ajustes → Bluetooth (o botão da Central de Controle só desconecta acessórios e pode não chegar ao app como Bluetooth desligado). O estado deve ir a `Bluetooth desligado (4)` e voltar a `Conectado (2)` sozinho, só com LOGIN. Teste também fechar o app pelo app switcher, abrir de novo e ver a reconexão sozinha. |
+| A8, I9 | `Export` e `Compartilhar arquivo` em vez do `adb pull`. |
+| Extra | Negar o Bluetooth (Ajustes → CoreNextExample → Bluetooth desligado) e tocar em `Scan`: "Último erro" `PERMISSION_DENIED`, `Missing Bluetooth`. Religar. |
+| Extra (segundo plano) | Com o relógio em `Conectado (2)`, mande o app para o segundo plano (botão de início) e afaste o relógio até cair (o log mostra `didDisconnectPeripheral` e um `connect … autoReconnect=true`). Com o relógio longe, abra apps pesados (câmera, jogos) até o iOS encerrar o CoreNextExample; **não** feche pelo app switcher, que desliga a restauração. Traga o relógio de volta sem abrir o app. No Console.app: `CoreGraph/init` novo (o iOS relançou o app), `willRestoreState`, `Keeping restored connection` ou um `didConnect` da tentativa da sessão, `reconnectIfPaired … (Bluetooth turned on)` e a sessão chegando a `READY`. `No connect for restored` é falha. |
+
+**Primeira rodada no iPhone (2026-10-30, Release, os dois relógios).** O que ela cobriu; o que não está aqui continua
+aberto. Detalhes em [`docs/ios-pendente.md`](../docs/ios-pendente.md#o-que-o-iphone-mostrou-2026-10-30).
+
+| Item | Resultado |
+|---|---|
+| A3 | Feito: UUID na lista, BIND e LOGIN, `Conectado (2)`; MTU 23 e as propriedades do `6e400002` no log. |
+| A4 | Feito: firmware `0.2.1`, bateria 35% (a comparação com a tela não foi anotada). |
+| A5 | Em parte: `Set time` com a hora automática; a hora manual à frente não foi testada. |
+| A6 | Em parte: `Refresh steps` e `Sync` com passos e sono, mas 0 passos no dia (o relógio não foi usado): o total contra a tela fica para uma rodada com passos. |
+| A7 | Em parte: `Disconnect` (sem reconexão sozinha) e `Forget` com a sessão já desconectada (sem `UNBIND`). Não feitos: `Reconnect last`, o novo pareamento depois do `Forget`, o Bluetooth desligado com o relógio conectado (só foi desligado e religado sem relógio conectado) e o app fechado e aberto de novo. |
+| A8 | Em parte: os pacotes com hex no log e o `Export` (52 pacotes). O cabeçalho saiu com o nome do Life Ultra GPS (corrigido depois, ADR 24 do Repo 1). |
+| Exploratório (sono) | O `Sync` trouxe uma sessão de sono com o relógio parado durante a noite, sem uso. Não é uma noite real. |
+| I1 | Feito: `Life Ultra GPS` na lista, com UUID. |
+| I2 | Feito, depois de esquecer o relógio em Ajustes → Bluetooth (antes, todas as tentativas falharam com status 14, hoje `PAIRING_REMOVED`): `0af7` e `0af2`, BIND com o toque na tela, `READY`, `03/01` 1 s depois; propriedades do `0af6` no log, sem WARN `… declares`. |
+| I3 | Não feito. |
+| I4 | Feito: firmware `1.1.1`, bateria 12% (a comparação com a tela não foi anotada). |
+| I5 | Em parte: `Set time` com a hora automática. |
+| I6 | Feito: 57 passos, 7 kcal e 59 m; `Sync` em menos de um segundo; `Sono` com `NO_DATA`. Os valores da tela do relógio não foram anotados. |
+| I7, I8 | Não feitos. |
+| I9 | Feito: `Export` com 24 pacotes, cabeçalho `Life Ultra GPS` `1.1.1`. |
+| Extras | Não feitos (recusa do Bluetooth, segundo plano). |
+
+Registre os resultados no [`docs/ios-pendente.md`](../docs/ios-pendente.md#pendências) (caixas da seção Pendências) e,
+para o protocolo, no `docs/pendencias.md` do Repo 1.
+
 ## Permissões
 
 Pedidas ao abrir o app (aba Conexão, cartão "Permissões"):
@@ -46,6 +140,9 @@ Pedidas ao abrir o app (aba Conexão, cartão "Permissões"):
 
 Negou com "não perguntar de novo": o cartão mostra "Bloqueadas" e o botão "Abrir configurações". Para começar do
 zero: `adb uninstall br.com.grupotechnos.corenext.example` e `npm run android` de novo.
+
+No iOS o JS não pede nada (o cartão diz isso): o sistema mostra o pedido do Bluetooth no primeiro uso do Core, e o app
+não espera por ele para inicializar.
 
 ## As três abas
 
@@ -161,11 +258,12 @@ App.tsx                      # abas e initialize()
 src/theme.ts                 # paletas clara e escura (useColorScheme)
 src/hooks/useCoreEvents.ts   # inscreve em todos os eventos; estado + anel de log
 src/hooks/coreState.ts       # reducer puro do estado
-src/hooks/usePermissions.ts  # PermissionsAndroid por nível de API
+src/hooks/usePermissions.ts  # PermissionsAndroid por nível de API (no iOS não pede nada)
 src/hooks/useCommand.ts      # spinner, erro e hora do último sucesso de um comando
 src/screens/                 # ConnectionScreen, DataScreen, LogScreen
 src/components/              # botões, cartões, badge de estado, barra de abas
 src/helpers/                 # formatação, anel de log e jsonl, comandos adb
+ios/                         # app iOS: AppDelegate (CoreNext.bootstrap), Info.plist, Podfile
 __tests__/                   # Jest
 ```
 
@@ -178,6 +276,22 @@ __tests__/                   # Jest
   reconexão com `HANDSHAKE_FAILED` quer dizer que o relógio se diz desvinculado (`pairFlag` 0): pareie de novo.
 - **`NOT_READY` nos botões.** O estado não é `Conectado (2)`.
 - **`Passos` volta vazio.** Rode o `Sync` antes: `getHistoryPedometer` lê só o histórico local.
+- **iPhone: `pod install` para com "Falta ios/Frameworks/TechnosWatchProtocol.xcframework".** Rode
+  `../ios/scripts/sync-xcframework.sh --build` na raiz do repositório e repita.
+- **iPhone: "Failed to register bundle identifier" ou "No profiles for ...".** Troque o Bundle Identifier por um seu
+  (passo 4 de [Rodar no iPhone](#rodar-no-iphone)).
+- **iPhone: tela vermelha "No bundle URL present" (Debug).** O Metro não está rodando ou o iPhone não alcança o Mac
+  (mesma rede Wi-Fi). Ou rode em Release, que embute o JS.
+- **iPhone: `PAIRING_REMOVED` no pareamento ou na reconexão** (no log, `didFailToConnect status=14 error=Peer removed
+  pairing information`; o build do primeiro teste mostrava `DISCONNECTED` com `status=14`). O iPhone guarda um vínculo
+  Bluetooth com o relógio, de um pareamento antigo (por exemplo pelo app Mormaii de produção neste iPhone), que o relógio
+  apagou ao ser pareado com outro celular depois. O iOS recusa toda conexão até você esquecer o relógio: Ajustes →
+  Bluetooth → (i) ao lado do relógio → Esquecer Este Dispositivo. Desligar o Bluetooth do outro celular não resolve.
+  Depois, `Scan` e toque no relógio (ou, se ele já estava salvo neste app, volte ao app, que reconecta sozinho). O app
+  não consegue esquecer o vínculo por você, e o nativo não tenta de novo sozinho; a tela mostra a dica junto com o erro.
+  Visto com o Life Ultra GPS em 2026-10-30.
+- **iPhone: `BLUETOOTH_OFF (4)` com o Bluetooth ligado.** O app ficou sem autorização: Ajustes → CoreNextExample →
+  Bluetooth. O `Scan` mostra `PERMISSION_DENIED` com `Missing Bluetooth`.
 - **Build falha com `Could not find br.com.grupotechnos.watch:bridge:0.1.0` (ou `protocol:0.1.0`).** Falta o
   `publishToMavenLocal` do Repo 1, que publica os dois. Um `~/.m2` de antes do `:bridge` tem só o `protocol`, e o erro
   cita o `bridge`.

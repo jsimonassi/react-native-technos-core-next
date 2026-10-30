@@ -1,56 +1,120 @@
-# `ios/` (não implementado nesta PoC)
+# `ios/`
 
-A PoC prova o desenho no Android. O iOS tem só o esqueleto do pod (`react-native-technos-core-next.podspec`, na raiz)
-e este README. Plano detalhado e armadilhas em [`../docs/ios-pendente.md`](../docs/ios-pendente.md).
+O Core iOS: o pod do React Native (`../react-native-technos-core-next.podspec`, módulo Swift `TechnosCoreNext`) sobre o
+framework do Repo 1, um pacote Swift só para os testes no simulador e o script que traz o framework. O desenho, as
+decisões e o que ainda não foi validado estão em [`../docs/ios-pendente.md`](../docs/ios-pendente.md) ("iOS: estado e
+pendências").
+
+```
+ios/
+	CoreNext/            fontes do pod: host Swift (sem React) e o shim ObjC++ do TurboModule (README em cada pasta)
+	Frameworks/          TechnosWatchProtocol.xcframework copiado do Repo 1 (não versionado; ver abaixo)
+	scripts/             sync-xcframework.sh
+	Package.swift        pacote Swift dos testes no simulador (não entra no app)
+	Tests/               testes do host no simulador, com as gravações reais do Repo 1
+```
 
 ## O que existe
 
-- `react-native-technos-core-next.podspec`: iOS 15.1, `source_files "ios/**/*.{h,m,mm,swift}"`,
-  `vendored_frameworks "ios/Frameworks/TechnosWatchProtocol.xcframework"`, `install_modules_dependencies`.
-  O 15.1 é o mínimo do RN 0.81 (`react-native/scripts/cocoapods/helpers.rb:83-85`) e o
-  `IPHONEOS_DEPLOYMENT_TARGET` do `example/ios`; um pod 16.0 seria recusado pelo `pod install` do example. O app
-  Mormaii está em 16.0 (`GTE-Mormaii/ios/Podfile:68`), o que um pod 15.1 aceita.
-- O XCFramework do Repo 1 (estático, prefixo ObjC `TWP`). Ele sai do módulo `:bridge` de lá, com o `:protocol`
-  exportado: um framework só, com a `WatchSession`, o contrato JS comum (`EventMapper`, `StateMapper`,
-  `SavedDataMapper`, `HostErrorCodes`, `PendingEvents`, `RequestRegistry`, `FoundationConverter`; ADR 20 de lá) e o
-  controlador `CoreBridge` com `CoreHost`, `CoreEventSink` e `CoreCompletion` (ADR 21), o mesmo que o Android usa.
-  Gerado assim:
-  ```
-  cd ../technos-watch-protocol
-  ./gradlew assembleTechnosWatchProtocolXCFramework
-  mkdir -p ../react-native-technos-core-next/ios/Frameworks
-  cp -R bridge/build/XCFrameworks/release/TechnosWatchProtocol.xcframework ../react-native-technos-core-next/ios/Frameworks/
-  ```
-  A pasta `ios/Frameworks/` é artefato de build: não versionar. Até a ADR 20 do Repo 1, o framework saía de
-  `protocol/build/XCFrameworks/`; um XCFramework antigo copiado de lá não tem o contrato JS.
+- **Shim do TurboModule** (`CoreNext/turbomodule/RCTNativeCoreNext.mm`): os 23 métodos do spec, cada um uma chamada ao
+  `TWPCoreBridge`, e o `TWPCoreEventSink` (os 13 eventos). Registrado pelo `codegenConfig.ios.modulesProvider` do
+  `package.json` (o codegen escreve `"NativeCoreNext": "RCTNativeCoreNext"` no `RCTModuleProviders.mm` do app).
+- **Host Swift** (`CoreNext/`): `CoreGraph` (um por processo), `IosCoreHost` (o `CoreHost`), `CentralTransport` (o
+  `Transport` sobre o CoreBluetooth), `FileSampleStore`, `PairingStore`, `RingLogger`, `FrameRecorder` e
+  `CoreNext.bootstrap(launchOptions:)` para a restauração do Bluetooth.
+- **Testes no simulador** (`Tests/`, 47 testes): o host inteiro com o `CoreBridge` e a sessão do framework, sobre um
+  transporte que responde com as gravações reais do fitGPS (167 e 32 TX) e do Life Ultra GPS (12 TX), mais o contrato B,
+  a fila de operações, a restauração, o re-arme (e o vínculo apagado que não re-arma), o status de cada `NSError` e o
+  tipo de escrita sem CoreBluetooth.
+- **App de exemplo** (`../example/ios`): `pod install`, build Debug no simulador e Release para iPhone (sem assinatura
+  aqui), `NSBluetoothAlwaysUsageDescription`, `UIBackgroundModes` `bluetooth-central`, export visível no app Arquivos e
+  `CoreNext.bootstrap` no `AppDelegate`.
 
-## O que falta (em ordem)
+Rodou num iPhone com os dois relógios em 2026-10-30 (Release; sem reconexão nem segundo plano): o resultado e o que falta
+estão no [`docs/ios-pendente.md`](../docs/ios-pendente.md#o-que-o-iphone-mostrou-2026-10-30), e o roteiro, no
+[`example/README.md`](../example/README.md#rodar-no-iphone).
 
-1. `CentralTransport.swift`: implementação do `Transport` (`TWPTransport`) sobre `CBCentralManager`/`CBPeripheral`,
-   com fila de operações equivalente à `GattQueue` do Android.
-2. `CoreNext.bootstrap(launchOptions:)`: cria o `CBCentralManager` com `CBCentralManagerOptionRestoreIdentifierKey`
-   no `application(_:didFinishLaunchingWithOptions:)` do app, antes do JS. O TurboModule só se anexa depois.
-3. `CoreGraph.swift`: `WatchSession(transport:logger:store:)` e `CoreBridge(session:logger:host:)`, um por processo;
-   implementa `CoreHost` como o `AndroidCoreHost` (`../docs/ios-pendente.md`, seção "Sem regra no host") e chama os
-   ganchos do processo; `FileSampleStore` (JSON em `Application Support`), `PairingPrefs` (`UserDefaults` numa suíte
-   própria), `RingLogger` com `os_log`, thread-safe como o do Android (a sessão o chama de mais de uma thread;
-   [`../docs/ios-pendente.md`](../docs/ios-pendente.md#threading-visto-pelo-host-ios)).
-4. `RCTNativeCoreNext.mm`: shim ObjC++ que conforma ao `NativeCoreNextSpec` gerado pelo codegen; cada método embrulha
-   resolve/reject numa `TWPCoreCompletion` e chama o seletor de mesmo nome do `TWPCoreBridge`, e o módulo é o
-   `TWPCoreEventSink` (o `emitOnX` de cada nome). Sem regra: a forma exata é o
-   `bridge/objc-interop/MinimalTurboModule.mm` do Repo 1, que o `check` de lá compila.
-5. ~~Conversão `NSData` ↔ `KotlinByteArray`~~: pronta no Repo 1 (`iosMain`, pacote `ios`). No Swift:
-   `value.toData()` no `write` e no `frame`, `session.events.onNotification(characteristic:data:)` e
-   `session.events.onReadCompleted(requestId:data:status:)` com o `Data` do `CoreBluetooth`,
-   `ByteBridgeKt.toByteArray(data)` para o resto; conferida pelo `./gradlew :bridge:checkSwiftInterop` de lá
-   ([`../docs/ios-pendente.md`](../docs/ios-pendente.md#bytes-nsdata--kotlinbytearray)).
-6. ~~Payloads para o JS como `NSDictionary`~~: pronto no Repo 1 (`:bridge`, `iosMain`, `FoundationConverter`), com
-   booleanos `CFBoolean` (o JS recebe `true`/`false`, não `1`/`0`). No Swift:
-   `FoundationConverter.shared.toDictionary(payload:)` antes de cada `emitOnX`, e
-   `FoundationConverter.shared.toArray(values: [value])[0]` em todo `resolve` de uma `CoreCompletion`
-   ([`../docs/ios-pendente.md`](../docs/ios-pendente.md#payloads-para-o-js-nsdictionary-e-cfboolean)).
-7. Example iOS (`example/ios`, `Podfile` com o pod por `:path`, `UIBackgroundModes` `bluetooth-central`,
-   `NSBluetoothAlwaysUsageDescription`).
+## O framework do Repo 1
+
+`Frameworks/TechnosWatchProtocol.xcframework` é o framework guarda-chuva do módulo `:bridge` do Repo 1 (com o
+`:protocol` exportado; estático; prefixo ObjC `TWP`). **Não é versionado aqui** (`.gitignore`: `ios/Frameworks/`): são
+cerca de 22 MB de binário gerados do código do Repo 1, que mudariam a cada alteração de lá e duplicariam no git o que o
+Repo 1 já reproduz. O custo é um passo antes do `pod install`:
+
+```sh
+ios/scripts/sync-xcframework.sh           # copia bridge/build/XCFrameworks/release/ do Repo 1 (irmão deste repo)
+ios/scripts/sync-xcframework.sh --build   # roda antes ./gradlew assembleTechnosWatchProtocolXCFramework no Repo 1
+```
+
+O script confere o header das duas fatias (`ios-arm64` e `ios-arm64-simulator`) e que o `CoreBridge` está lá, e grava
+em `Frameworks/VERSION.txt` o commit do Repo 1 copiado. Outro lugar para o Repo 1: `TECHNOS_WATCH_PROTOCOL_DIR`. Sem o
+framework, o `pod install` para com a instrução (o podspec levanta `Pod::Informative`), e o `xcodebuild test` do pacote
+Swift reclama do `binaryTarget`. Mudou API que o Swift vê no Repo 1: `--build`, `pod install` e build de novo.
+
+## Escolher o simulador
+
+Os comandos abaixo usam o UDID do simulador, não o nome: com dois simuladores de mesmo nome (dois "iPhone 17 Pro" no
+iOS 26.1, por exemplo), `-destination 'platform=iOS Simulator,name=iPhone 17 Pro'` falha com "multiple devices
+matched". `name=` só serve se o nome for único.
+
+```sh
+xcrun simctl list devices available       # escolha um iPhone e copie o UDID (o código entre parênteses)
+SIM=<UDID>
+```
+
+## Testes do host no simulador
+
+```sh
+cd ios
+xcodebuild test -scheme TechnosCoreNext -destination "platform=iOS Simulator,id=$SIM"
+```
+
+Detalhes, o que cada teste confere e as linhas `IOS-REPLAY`: [`Tests/README.md`](Tests/README.md).
+
+## App de exemplo no simulador
+
+O simulador não tem Bluetooth (o central fica `.unsupported`), então o app mostra `Bluetooth desligado (4)`; serve para
+provar que o módulo registra, responde e emite.
+
+```sh
+cd example && npm install && npm start          # Metro (terminal 1)
+cd example/ios && pod install
+xcrun simctl boot "$SIM" 2>/dev/null; open -a Simulator    # liga o simulador, se ainda não estiver
+xcodebuild -workspace CoreNextExample.xcworkspace -scheme CoreNextExample -configuration Debug \
+	-destination "platform=iOS Simulator,id=$SIM" -derivedDataPath build/dd build
+xcrun simctl install "$SIM" build/dd/Build/Products/Debug-iphonesimulator/CoreNextExample.app
+xcrun simctl spawn "$SIM" log stream --level debug \
+	--predicate 'subsystem == "br.com.grupotechnos.corenext" OR category == "javascript"'     # terminal 2, antes do launch
+xcrun simctl launch "$SIM" br.com.grupotechnos.corenext.example
+```
+
+O `--level debug` é obrigatório: o Core loga em `info` e `debug` no `os_log` (`RingLogger.osLogType`; só WARN e ERROR
+saem como `default` e `error`), e o `console.info` do JS também é `info`; sem `--level`, o `log stream` mostra só
+`default` e acima, e a tela fica vazia. `--level info` basta se não quiser o hex dos frames (`Frame/…`, em `debug`).
+
+(ou `npx react-native run-ios` no `example/`). No log: `CoreGraph/init`, `centralManagerDidUpdateState: state=unsupported`,
+`RCTNativeCoreNext/attach`, `[CoreNextExample] initialize() resolved` e `onConnectStateChanged {"state":4,...}`.
+
+## iPhone
+
+Build para aparelho, assinatura com o time pessoal, Modo Desenvolvedor, o pedido do Bluetooth e os roteiros com os dois
+relógios: [`../example/README.md`](../example/README.md#rodar-no-iphone). Para conferir só que compila, sem assinar:
+
+```sh
+cd example/ios
+xcodebuild -workspace CoreNextExample.xcworkspace -scheme CoreNextExample -configuration Release -sdk iphoneos \
+	-destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build
+```
+
+## Integração num app (o Mormaii)
+
+1. `ios/scripts/sync-xcframework.sh` e o pod por `:path` (ou autolinking) no `Podfile`; `pod install`.
+2. No `AppDelegate`, antes do React Native: `import TechnosCoreNext` e `CoreNext.bootstrap(launchOptions: launchOptions)`.
+3. `Info.plist`: `NSBluetoothAlwaysUsageDescription` e `UIBackgroundModes` com `bluetooth-central` (o Mormaii já tem
+   os dois).
+
+O que muda para o app e o que não foi verificado (frameworks dinâmicos, o identificador de restauração do Core atual):
+[`../docs/ios-pendente.md`](../docs/ios-pendente.md#integração-no-app-mormaii).
 
 ## O que não vai existir aqui
 

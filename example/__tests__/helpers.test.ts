@@ -1,5 +1,13 @@
 import { buildPullCommand, exportedFiles } from "../src/helpers/adb";
-import { connectStateLabel, formatInt, formatIsoDay, formatKm, todayKey } from "../src/helpers/format";
+import {
+	connectStateLabel,
+	describeError,
+	errorHint,
+	formatInt,
+	formatIsoDay,
+	formatKm,
+	todayKey,
+} from "../src/helpers/format";
 import { filterLogs, mergeSnapshot, prependNewest, spacedHex, toJsonl, type LogRow } from "../src/helpers/logBuffer";
 import { coreReducer, initialCoreState } from "../src/hooks/coreState";
 import { permissionsForApi, summarizePermissions } from "../src/hooks/usePermissions";
@@ -70,6 +78,17 @@ describe("format", () => {
 		expect(formatInt(12345)).toBe("12.345");
 		expect(formatKm(1234)).toBe("1,23 km");
 		expect(todayKey(new Date(2026, 0, 5))).toBe("2026-01-05");
+	});
+
+	it("PAIRING_REMOVED ganha a dica dos Ajustes; os outros erros ficam como estão", () => {
+		const hint = "Esqueça o relógio em Ajustes > Bluetooth do iPhone e tente parear de novo.";
+		expect(errorHint("PAIRING_REMOVED")).toBe(hint);
+		expect(errorHint("HANDSHAKE_FAILED")).toBeNull();
+		expect(errorHint(null)).toBeNull();
+		const removed = Object.assign(new Error("the watch erased the Bluetooth pairing"), { code: "PAIRING_REMOVED" });
+		expect(describeError(removed)).toBe(`${hint}\nPAIRING_REMOVED: the watch erased the Bluetooth pairing`);
+		const timeout = Object.assign(new Error("no connection after 30000 ms"), { code: "CONNECT_TIMEOUT" });
+		expect(describeError(timeout)).toBe("CONNECT_TIMEOUT: no connection after 30000 ms");
 	});
 });
 

@@ -1,5 +1,15 @@
 import React, { memo, useCallback, useMemo, useState } from "react";
-import { FlatList, Share, StyleSheet, Switch, Text, TextInput, View, type ListRenderItem } from "react-native";
+import {
+	FlatList,
+	Platform,
+	Share,
+	StyleSheet,
+	Switch,
+	Text,
+	TextInput,
+	View,
+	type ListRenderItem,
+} from "react-native";
 import { TechnosCore, logLevels, type LogLevelName } from "react-native-technos-core-next";
 import { Button, ButtonRow, Chip, ErrorText, Muted } from "../components/ui";
 import { buildPullCommand, exportedFiles } from "../helpers/adb";
@@ -24,9 +34,11 @@ interface LogScreenProps {
 interface ExportResult {
 	/** Caminho devolvido por `exportLogs` (gravação de frames). */
 	path: string;
-	/** Um comando por arquivo da exportação (frames e log). */
+	/** Um comando `adb` por arquivo da exportação (frames e log); vazio no iOS, onde os arquivos saem pelo app Arquivos. */
 	commands: string[];
 }
+
+const isIos = Platform.OS === "ios";
 
 const LogScreenView = ({ logs, onClear, onReload }: LogScreenProps) => {
 	const palette = usePalette();
@@ -62,7 +74,9 @@ const LogScreenView = ({ logs, onClear, onReload }: LogScreenProps) => {
 		setExporting(true);
 		setError(null);
 		TechnosCore.exportLogs()
-			.then(path => setExported({ path, commands: exportedFiles(path).map(file => buildPullCommand(file)) }))
+			.then(path =>
+				setExported({ path, commands: isIos ? [] : exportedFiles(path).map(file => buildPullCommand(file)) }),
+			)
 			.catch(reason => setError(describeError(reason)))
 			.finally(() => setExporting(false));
 	}, []);
@@ -74,6 +88,15 @@ const LogScreenView = ({ logs, onClear, onReload }: LogScreenProps) => {
 			setError(describeError(reason)),
 		);
 	}, [logs]);
+
+	/** No iOS o Share aceita um arquivo: a gravação de frames sai inteira (AirDrop para o Mac, Arquivos, e-mail). */
+	const shareFile = useCallback(() => {
+		if (!exported) {
+			return;
+		}
+		setError(null);
+		Share.share({ url: `file://${exported.path}` }).catch(reason => setError(describeError(reason)));
+	}, [exported]);
 
 	const reload = useCallback(() => {
 		setError(null);
@@ -167,10 +190,29 @@ const LogScreenView = ({ logs, onClear, onReload }: LogScreenProps) => {
 						<Text selectable style={styles.exportText}>
 							{exported.path}
 						</Text>
-						<Muted>No computador, com o celular no USB (frames e log):</Muted>
-						<Text selectable style={styles.exportText}>
-							{exported.commands.join("\n")}
-						</Text>
+						{isIos ? (
+							<>
+								<Muted>
+									No iPhone: app Arquivos → No meu iPhone → CoreNextExample → corenext (frames e log),
+									ou compartilhe a gravação:
+								</Muted>
+								<ButtonRow>
+									<Button
+										compact
+										variant="secondary"
+										title="Compartilhar arquivo"
+										onPress={shareFile}
+									/>
+								</ButtonRow>
+							</>
+						) : (
+							<>
+								<Muted>No computador, com o celular no USB (frames e log):</Muted>
+								<Text selectable style={styles.exportText}>
+									{exported.commands.join("\n")}
+								</Text>
+							</>
+						)}
 					</View>
 				) : null}
 				<ErrorText message={error} />

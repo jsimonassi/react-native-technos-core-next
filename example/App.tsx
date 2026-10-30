@@ -26,11 +26,14 @@ const useInitialize = (permissionsGranted: boolean): InitState => {
 		// `initialize` é idempotente; roda de novo quando as permissões chegam para o nativo já enxergar o Bluetooth.
 		TechnosCore.initialize()
 			.then(() => {
+				// Aparece no console do Xcode (e no `log stream` do simulador): prova que o módulo nativo respondeu.
+				console.info("[CoreNextExample] initialize() resolved");
 				if (!cancelled) {
 					setStatus("ready");
 				}
 			})
 			.catch(reason => {
+				console.warn(`[CoreNextExample] initialize() failed: ${describeError(reason)}`);
 				if (!cancelled) {
 					setStatus("failed");
 					setError(describeError(reason));
@@ -54,6 +57,12 @@ const AppContent = () => {
 	const permissions = usePermissions();
 	const init = useInitialize(permissions.status === "granted");
 	const [tab, setTab] = useState<TabKey>("connection");
+
+	useEffect(() => {
+		if (core.state.connection) {
+			console.info(`[CoreNextExample] onConnectStateChanged ${JSON.stringify(core.state.connection)}`);
+		}
+	}, [core.state.connection]);
 
 	const tabs: TabItem<TabKey>[] = useMemo(
 		() => [

@@ -104,7 +104,7 @@ class DeletedSavedDataEquivalenceTest {
 
 		override fun setRecordingDeviceName(name: String) {}
 
-		override fun setRecordingFirmware(firmware: String) {}
+		override fun setRecordingFirmware(firmware: String?) {}
 
 		override fun logEntries(limit: Int): List<CoreLogEntry> = emptyList()
 

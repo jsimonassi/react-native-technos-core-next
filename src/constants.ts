@@ -52,7 +52,7 @@ export type DeletedCategory = (typeof deletedCategory)[keyof typeof deletedCateg
 /**
  * Códigos de erro de `onError.code` e do `code` das Promises rejeitadas.
  *
- * Os doze primeiros vêm do módulo de protocolo (`WatchErrorCodes.kt` do `technos-watch-protocol`); os quatro
+ * Os treze primeiros vêm do módulo de protocolo (`WatchErrorCodes.kt` do `technos-watch-protocol`); os quatro
  * últimos nascem no nativo antes de a sessão ser chamada (`HostErrorCodes.kt` do `:bridge` do mesmo repositório).
  * Mudou uma das duas listas nativas, mude aqui e em `docs/api-js.md`.
  */
@@ -77,6 +77,15 @@ export const errorCodes = {
 	TRANSPORT: "TRANSPORT",
 	/** O link caiu com o comando em andamento. */
 	DISCONNECTED: "DISCONNECTED",
+	/**
+	 * O telefone guarda um vínculo Bluetooth que o relógio já apagou (o relógio foi pareado com outro telefone depois),
+	 * e o sistema recusa a conexão até o usuário esquecer o relógio nas configurações de Bluetooth do telefone (no
+	 * iPhone, Ajustes > Bluetooth > "Esquecer este dispositivo"); o app não consegue fazer isso. Sai em `pairDevice` e
+	 * `startPairingAttempt`, e com `requestId` -1 e `method` `null` quando a reconexão automática para por isso. O
+	 * nativo não tenta de novo sozinho. Hoje só o iOS detecta (`CBError.peerRemovedPairingInformation`; ADR 23 do
+	 * `technos-watch-protocol`).
+	 */
+	PAIRING_REMOVED: "PAIRING_REMOVED",
 	/** O comando foi cancelado por desconexão, `forgetDevice`, reload do JS ou por um `pairDevice`/`startPairingAttempt` mais novo. */
 	CANCELLED: "CANCELLED",
 	/** Reservado: a sessão não emite (um pareamento novo cancela o anterior com `CANCELLED`, ADR 13 do Repo 1). */

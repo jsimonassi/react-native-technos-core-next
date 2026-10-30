@@ -3,7 +3,7 @@ import { ActivityIndicator, Alert, Linking, Pressable, ScrollView, StyleSheet, T
 import { TechnosCore, type LastPairedDevice, type ScannedDeviceEvent } from "react-native-technos-core-next";
 import { StateBadge } from "../components/StateBadge";
 import { Button, ButtonRow, Card, ErrorText, Field, Hint, Muted } from "../components/ui";
-import { describeError, formatClock, formatInt, formatIsoDay, formatKm } from "../helpers/format";
+import { describeError, errorHint, formatClock, formatInt, formatIsoDay, formatKm } from "../helpers/format";
 import type { CoreState } from "../hooks/coreState";
 import { useCommand } from "../hooks/useCommand";
 import type { PermissionsState, PermissionStatus } from "../hooks/usePermissions";
@@ -32,7 +32,7 @@ const permissionLabel: Record<PermissionStatus, string> = {
 	granted: "Concedidas",
 	denied: "Negadas",
 	blocked: "Bloqueadas (libere nas configurações)",
-	unavailable: "Não se aplica (só Android nesta PoC)",
+	unavailable: "No iOS o sistema pede o Bluetooth no primeiro uso (Ajustes → CoreNextExample → Bluetooth)",
 };
 
 const formatAt = (at: number | undefined | null): string | undefined =>
@@ -158,6 +158,7 @@ const ConnectionScreenView = ({ state, permissions, init, onClearDevices, onClea
 	}, [forget, refreshLastPaired]);
 
 	const { battery: batteryEvent, deviceInfo: info, firmwareInfo, pedometer, receivedAt } = state;
+	const lastErrorHint = errorHint(state.lastError?.code);
 
 	return (
 		<ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
@@ -200,7 +201,7 @@ const ConnectionScreenView = ({ state, permissions, init, onClearDevices, onClea
 				{state.lastError ? (
 					<View style={styles.errorBox}>
 						<Text selectable style={styles.errorText}>
-							{`Último erro: ${state.lastError.code}${
+							{`${lastErrorHint ? `${lastErrorHint}\n` : ""}Último erro: ${state.lastError.code}${
 								state.lastError.method ? ` em ${state.lastError.method}` : ""
 							}\n${state.lastError.message}`}
 						</Text>

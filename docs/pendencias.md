@@ -93,32 +93,35 @@ ou mascarar o MAC antes.
 
 ## 4. iOS
 
-Nada do host iOS existe além do podspec (iOS 15.1). O que falta e as armadilhas estão em
-[`ios-pendente.md`](ios-pendente.md). Da gravação, o que já vale para o iOS: o transporte segue o contrato B do
-Bluetooth desligado (`.poweredOff` sem `onDisconnected`); o scan tem que ser sem filtro de serviço (o fitGPS não
-anuncia o NUS).
+O host iOS existe desde 2026-10-30 (pod, shim ObjC++ do TurboModule, `CoreGraph`, `IosCoreHost`, `CentralTransport`,
+stores, logger) e o app de exemplo compila para o simulador e para o iPhone; o estado, as decisões e o que só o aparelho
+fecha estão em [`ios-pendente.md`](ios-pendente.md) ("iOS: estado e pendências"). Já conferido sem iPhone: o host
+inteiro no simulador com as três gravações reais (`TX matched 167/167`, `32/32` e `12/12`, passos 56 e 51) e o app de
+exemplo registrando o módulo e resolvendo o `initialize` com o evento de estado
+([`ios-pendente.md`](ios-pendente.md#verificação-sem-iphone)).
 
-Já resolvido no Repo 1, sem relógio (2026-10-29; `docs/pendencias.md` de lá, seção "iOS"):
+- [x] **Primeiro teste no iPhone com os dois relógios** (2026-10-30, app de exemplo em Release): pareamento, comandos e
+  sync com o fitGPS 0.2.1 e com o Life Ultra GPS 1.1.1, este depois de esquecer nos Ajustes um vínculo Bluetooth antigo
+  (`PAIRING_REMOVED`, ADR 23 do Repo 1). Resultados em
+  [`ios-pendente.md`](ios-pendente.md#o-que-o-iphone-mostrou-2026-10-30).
 
-- **Bytes**: a ponte do `iosMain` (`value.toData()`, `session.events.onNotification(characteristic:data:)`,
-  `session.events.onReadCompleted(requestId:data:status:)`, `ByteBridgeKt.toByteArray(data)`), conferida no Swift pelo
-  `checkSwiftInterop` de lá ([`ios-pendente.md`](ios-pendente.md#bytes-nsdata--kotlinbytearray)).
-- **MTU**: o `CentralTransport` responde `requestMtu` com `maximumWriteValueLength(for: .withoutResponse) + 3`, nunca
-  com o valor de `.withResponse`; com o fitGPS 0.2.1 (MTU 23) o iOS manda fragmentos de 20 bytes, como o Android
-  (ADR 5 do Repo 1, emenda).
-- **Protocolo e threading no Kotlin/Native**: a gravação real reproduz no simulador iOS, também em tempo real no
-  dispatcher de produção com os eventos vindos de uma fila GCD serial
-  ([`ios-pendente.md`](ios-pendente.md#threading-visto-pelo-host-ios)).
-- **Regras de cada método JS**: o `CoreBridge` do `:bridge` faz tudo o que o host Android fazia, em código comum e
-  testado no simulador, e o host Android deste repositório já é só uma casca sobre ele
-  ([`arquitetura.md`](arquitetura.md#o-que-mora-onde)). O shim iOS só chama o controlador, e o Swift implementa o
-  `CoreHost` e o transporte ([`ios-pendente.md`](ios-pendente.md#sem-regra-no-host)).
+Continua em aberto, nesta ordem:
 
-Continua em aberto, nesta ordem: pod e shim ObjC++, ponte Swift e persistência (`CoreGraph` com o `CoreHost`, store,
-preferências, logger), export do log, `CentralTransport` sobre `CoreBluetooth`, H8 com uma gravação iOS, e segundo
-plano e restauração. Neste último, a espera crescente da reconexão é um `delay` na sessão do Repo 1, sem `connect`
-pendente no host, e não anda com o app suspenso: no iOS a espera deveria ser o próprio `connect` pendente
-([`ios-pendente.md`](ios-pendente.md#outras-diferenças-a-cobrir)).
+- [ ] **Gravações iOS como fixture**: as duas do primeiro teste (`platform` `ios`) copiadas para
+  `fixtures/real/<perfil>/<fw>/` no Repo 1 e reproduzindo lá; a do fitGPS precisa antes do cabeçalho corrigido (ADR 24
+  do Repo 1).
+- [ ] **O resto do roteiro no iPhone**: reconexão (Bluetooth desligado com o relógio conectado, `Reconnect last`, fora de
+  alcance, app fechado e aberto de novo), `PAIRING_REMOVED` com o código atual, reinstalação (o UUID muda) e a recusa da
+  autorização ([`ios-pendente.md`](ios-pendente.md#pendências)).
+- [ ] **H8 com uma gravação iOS** (Repo 1, `docs/pendencias.md`, bloco 5).
+- [ ] **Segundo plano e restauração**: a restauração com pressão de memória e a reconexão com o app suspenso. O host
+  já faz a parte dele (a reconexão sai do primeiro `.poweredOn` sem JS, o `didConnect` restaurado que chega antes dela
+  não é cancelado, e o re-arme da conexão pendente é na hora depois de uma tentativa que esperou). Falta a sessão: a
+  espera crescente da reconexão é um `delay` na sessão do Repo 1, sem `connect` pendente no host, e não anda com o app
+  suspenso; no iOS a espera deveria ser o próprio `connect` pendente
+  ([`ios-pendente.md`](ios-pendente.md#pendências)).
+- [ ] **Integração no Mormaii** (`AppDelegate`, pod, frameworks dinâmicos não verificados;
+  [`ios-pendente.md`](ios-pendente.md#integração-no-app-mormaii)).
 
 ## 5. Lacunas da integração com o app Mormaii
 
@@ -173,8 +176,8 @@ O `Transport.connect` do Repo 1 recebe o MAC no Android e o UUID do periférico 
 - O `lastDevice` que o app guarda (`CACHE_PAIRING_KEYS.lastDevice`) muda de formato por plataforma, e o UUID do iOS
   muda se o app for reinstalado (`ios-pendente.md`). Um pareamento salvo não migra entre o Core atual e este no iOS
   sem um novo scan.
-- A validação de `pairDevice`/`startPairingAttempt` aceita só MAC (`INVALID_ARGUMENT`); no iOS ela terá que aceitar
-  UUID.
+- A validação de `pairDevice`/`startPairingAttempt` aceita o MAC no Android e o UUID no iOS (`INVALID_ARGUMENT` para o
+  resto; `isValidAddress` de cada `CoreHost`).
 - **Firmware:** o app guarda `onFirmwareInfo.deviceId` como número (`useWatchInfoData/index.ts:39, 96-103`) e o manda
   ao backend como filtro de revisão de hardware na checagem de firmware (`:196`; `src/services/Api/Firmware.js:49-52`).
   No Core atual o campo é numérico e opcional; aqui ele é sempre o MAC (`api-js.md`, `onFirmwareInfo`). Antes de

@@ -10,12 +10,13 @@ Fontes do contrato: `src/specs/NativeCoreNext.ts` (TurboModule), `src/types/even
 Mudou o spec ou um payload, atualize este arquivo no mesmo PR.
 
 O que cada método faz do lado nativo mora no `CoreBridge` do `:bridge` do Repo 1 (o TurboModule Android só o chama;
-[`arquitetura.md`](arquitetura.md#o-que-mora-onde)), e o iOS vai usar o mesmo código. O contrato descrito aqui não
+[`arquitetura.md`](arquitetura.md#o-que-mora-onde)), e o shim iOS (`ios/CoreNext/turbomodule/`) também. O contrato descrito aqui não
 mudou com essa troca: mesmos métodos, eventos, payloads, ordem e rejeições.
 
-Escopo da PoC: famílias SMA (Mormaii fitGPS) e iDO (Mormaii Life Ultra GPS, só as funções básicas), só Android. Os
-métodos, eventos e payloads são os mesmos para as duas; as diferenças de comportamento estão em cada item. No iOS o import falha, porque
-`TurboModuleRegistry.getEnforcing("NativeCoreNext")` não acha o módulo (ver `ios-pendente.md`).
+Escopo da PoC: famílias SMA (Mormaii fitGPS) e iDO (Mormaii Life Ultra GPS, só as funções básicas), no Android e no
+iOS (o iOS ainda sem teste no iPhone; `ios-pendente.md`). Os métodos, eventos e payloads são os mesmos para as duas
+famílias e as duas plataformas; as diferenças de comportamento estão em cada item. No iOS o `deviceId` é o UUID do
+periférico, não o MAC, e a falta de autorização do Bluetooth sai como `PERMISSION_DENIED` com `"Missing Bluetooth"`.
 
 ## Sumário
 
@@ -159,11 +160,15 @@ SMA; no iDO, informação básica, bind e autenticação, com a tela de confirma
   espera até 60 s pela confirmação na tela do relógio (`Quirks.bindTimeoutMs` do perfil fitGPS, `Profiles.kt`); no
   Life Ultra GPS, até 90 s, e o relógio sempre pede a confirmação no primeiro pareamento (recusar na tela rejeita com
   `HANDSHAKE_FAILED`).
-- Rejeita na hora: `PERMISSION_DENIED` (falta `BLUETOOTH_CONNECT`), `BLUETOOTH_OFF`, `INVALID_ARGUMENT` (`deviceId`
-  não é MAC), `UNSUPPORTED_DEVICE` (`name` desconhecido).
+- Rejeita na hora: `PERMISSION_DENIED` (falta `BLUETOOTH_CONNECT`; no iOS, Bluetooth negado ao app), `BLUETOOTH_OFF`,
+  `INVALID_ARGUMENT` (`deviceId` não é MAC no Android nem UUID no iOS), `UNSUPPORTED_DEVICE` (`name` desconhecido).
 - Rejeita depois: `CONNECT_TIMEOUT` (30 s sem abrir o link, `Quirks.connectTimeoutMs`), `GATT_NOT_SUPPORTED`,
-  `HANDSHAKE_FAILED`, `DISCONNECTED`, `TRANSPORT`, `CANCELLED`. Não existe `BUSY`: um `pairDevice` ou
-  `startPairingAttempt` novo cancela o pedido anterior, que rejeita com `CANCELLED` (ADR 13 do Repo 1).
+  `HANDSHAKE_FAILED`, `DISCONNECTED`, `TRANSPORT`, `PAIRING_REMOVED`, `CANCELLED`. Não existe `BUSY`: um `pairDevice`
+  ou `startPairingAttempt` novo cancela o pedido anterior, que rejeita com `CANCELLED` (ADR 13 do Repo 1).
+- `PAIRING_REMOVED` (só no iOS, por enquanto): o telefone guarda um vínculo Bluetooth com o relógio que o relógio já
+  apagou (ele foi pareado com outro telefone depois). O sistema recusa a conexão até a pessoa esquecer o relógio nas
+  configurações de Bluetooth (no iPhone, Ajustes → Bluetooth → Esquecer Este Dispositivo); o app não consegue fazer
+  isso. Mostre essa instrução e deixe a pessoa tentar de novo; o nativo não tenta sozinho (ADR 23 do Repo 1).
 - O relógio pareado é salvo ao chegar em `READY` (`getLastPairedDevice` passa a devolvê-lo).
 - Core atual: `pairDevice(deviceId, name): void` (`NativeCore.ts:15`). Sem retorno, sem timeout e sem erro para o
   JS; o app Mormaii põe um timeout de 30 s na tela (`ConnectingDeviceManuallyFromWatch/index.tsx:47-66`).
@@ -190,6 +195,10 @@ Reconecta a um relógio já pareado: conexão pendente sem timeout e handshake c
   `onConnectStateChanged` vai para desconectado e sai `onError` com `HANDSHAKE_FAILED`. A reconexão nunca refaz o
   BIND sozinha (ele pode pedir confirmação na tela do relógio); o app deve oferecer um `pairDevice`. Falta de
   resposta e quedas continuam tentando, com espera crescente (ADR 11 do Repo 1).
+- Com `PAIRING_REMOVED` (vínculo do sistema apagado no relógio, ver `pairDevice`) a sessão também desiste:
+  desconectado e `onError` com o método. Uma reconexão que o nativo começou sozinho (queda do link, Bluetooth religado,
+  volta ao primeiro plano) termina com `onError` `PAIRING_REMOVED` e `method: null`, sem nova tentativa até o próximo
+  gatilho; o relógio salvo continua salvo.
 - Core atual: `startPairingAttempt(deviceId, name): void` (`NativeCore.ts:16`); no SMA equivale a `pairDevice`.
 
 ### `disconnectCurrentDevice(): Promise<void>`
@@ -393,7 +402,7 @@ sub.remove();`. Tipos em `src/types/events.ts`.
 ```ts
 interface ScannedDeviceEvent {
 	name: string; // appName do perfil: "fitGPS"
-	deviceId: string; // MAC
+	deviceId: string; // MAC no Android, UUID do periférico no iOS
 	rssi: number;
 	bleName: string; // nome anunciado: "Mormaii_fitGPS" (novo)
 	profileId: string; // "fitgps" (novo)
@@ -625,7 +634,9 @@ interface ErrorEvent {
 { "requestId": 12, "code": "TIMEOUT", "message": "No response to 05/41", "method": "syncDataHistory" }
 ```
 
-Sai para toda Promise rejeitada e para falhas sem Promise (`scan`, reconexão automática, aviso do relógio). Novo.
+Sai para toda Promise rejeitada e para falhas sem Promise (`scan`, reconexão automática, aviso do relógio). Uma
+reconexão que o nativo começou sozinho e que para por `PAIRING_REMOVED` sai com `method: null` e `requestId` -1 (a
+sessão reconectava depois de uma queda) ou interno (o `CoreBridge` pediu a reconexão), conforme quem a começou. Novo.
 
 ### `onLog`
 
@@ -687,11 +698,12 @@ têm efeito.
 | `NO_DATA` | sessão/host | sem registros (sono) |
 | `TRANSPORT` | sessão/host | operação GATT ou scan falhou no Android |
 | `DISCONNECTED` | sessão | o link caiu com o comando em andamento |
+| `PAIRING_REMOVED` | sessão | o telefone guarda um vínculo Bluetooth que o relógio apagou; só a pessoa resolve, esquecendo o relógio nas configurações de Bluetooth (no iPhone, Ajustes → Bluetooth). Hoje só o iOS detecta (`CBError.peerRemovedPairingInformation`) |
 | `CANCELLED` | sessão/host | cancelado por desconexão, `forgetDevice`, reload do JS ou por um `pairDevice`/`startPairingAttempt` mais novo |
 | `BUSY` | reservado | a sessão não emite: um pareamento novo cancela o anterior com `CANCELLED` (ADR 13 do Repo 1) |
-| `PERMISSION_DENIED` | host | falta `BLUETOOTH_SCAN`/`BLUETOOTH_CONNECT` (API 31+) ou localização (API 30-) |
+| `PERMISSION_DENIED` | host | falta `BLUETOOTH_SCAN`/`BLUETOOTH_CONNECT` (API 31+) ou localização (API 30-); no iOS, Bluetooth negado ao app (`"Missing Bluetooth"`) |
 | `BLUETOOTH_OFF` | host | Bluetooth do telefone desligado |
-| `INVALID_ARGUMENT` | host | `deviceId` não é MAC |
+| `INVALID_ARGUMENT` | host | `deviceId` não é MAC (Android) nem UUID (iOS) |
 | `IO_ERROR` | host | falha de arquivo (histórico local, exportação) |
 
 Os da sessão são os de `WatchErrorCodes.kt` (`:protocol`, Repo 1); os do host, os de `HostErrorCodes.kt` (`:bridge`,

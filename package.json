@@ -1,7 +1,7 @@
 {
   "name": "react-native-technos-core-next",
   "version": "0.1.0",
-  "description": "Core React Native (TurboModule) dos smartwatches Technos sobre o módulo technos-watch-protocol. PoC: família SMA, Android.",
+  "description": "Core React Native (TurboModule) dos smartwatches Technos sobre o módulo technos-watch-protocol. PoC: famílias SMA e iDO, Android e iOS.",
   "main": "src/index.ts",
   "types": "src/index.ts",
   "react-native": "src/index.ts",
@@ -9,6 +9,9 @@
   "files": [
     "src",
     "android",
+    "ios/CoreNext",
+    "ios/Frameworks",
+    "react-native-technos-core-next.podspec",
     "!android/build",
     "!android/.gradle",
     "!**/__tests__"
@@ -35,6 +38,11 @@
     "jsSrcsDir": "src/specs",
     "android": {
       "javaPackageName": "br.com.grupotechnos.corenext"
+    },
+    "ios": {
+      "modulesProvider": {
+        "NativeCoreNext": "RCTNativeCoreNext"
+      }
     }
   }
 }

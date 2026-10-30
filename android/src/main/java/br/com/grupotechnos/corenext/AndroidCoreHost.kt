@@ -78,7 +78,8 @@ internal class AndroidCoreHost(
 		recorder.deviceName = name
 	}
 
-	override fun setRecordingFirmware(firmware: String) {
+	/** `null` quando o `CoreBridge` trocou o relógio do cabeçalho e o firmware do novo ainda não foi lido. */
+	override fun setRecordingFirmware(firmware: String?) {
 		recorder.firmware = firmware
 	}
 

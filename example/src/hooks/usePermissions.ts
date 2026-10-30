@@ -70,7 +70,9 @@ const apiLevel = (): number => (typeof Platform.Version === "number" ? Platform.
 
 /**
  * Verifica as permissões de Bluetooth ao montar e pede uma vez as que faltam. Fora do Android devolve
- * `unavailable` (a PoC não tem host iOS).
+ * `unavailable` sem pedir nada: no iOS não há permissão a pedir pelo JS; o sistema mostra o pedido do Bluetooth no
+ * primeiro uso do `CBCentralManager` (o `initialize`), e uma recusa aparece como `PERMISSION_DENIED`
+ * (`"Missing Bluetooth"`) no `scan` e no `pairDevice`. O App não espera por este hook para inicializar.
  */
 export const usePermissions = (): PermissionsState => {
 	const isAndroid = Platform.OS === "android";

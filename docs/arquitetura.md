@@ -1,12 +1,14 @@
 # Arquitetura do `react-native-technos-core-next`
 
 Visão do Repo 2: um TurboModule fino sobre o `technos-watch-protocol` (Repo 1). Esta PoC cobre as famílias SMA
-(Mormaii fitGPS) e iDO (Mormaii Life Ultra GPS, funções básicas) no Android. O host não tem código por família: os
+(Mormaii fitGPS) e iDO (Mormaii Life Ultra GPS, funções básicas) no Android e, desde 2026-10-30, no iOS (testado num
+iPhone com os dois relógios no mesmo dia, sem reconexão nem segundo plano; seção [iOS](#ios)). O host não tem código por família: os
 filtros do scan saem de `Profiles.all`, e o perfil diz à sessão quais CCCD ligar (no iDO, dois), se pede MTU e o tipo de
 escrita que o driver usa (no iDO, sem resposta). O que cada método JS faz (checagens, eventos, ordem evento/`resolve`, rejeições,
 pareamento salvo, reconexão automática) mora no `CoreBridge` do `:bridge` do Repo 1, descrito na seção 13 do
 [`docs/arquitetura.md` de lá](../../technos-watch-protocol/docs/arquitetura.md#13-controlador-comum-corebridge); aqui
-fica a plataforma. O iOS está descrito em [`ios-pendente.md`](ios-pendente.md); o transporte Android em detalhe em
+fica a plataforma. As peças do iOS estão na seção [iOS](#ios) e em detalhe em [`ios-pendente.md`](ios-pendente.md)
+("iOS: estado e pendências"); o transporte Android em detalhe em
 [`transporte-android.md`](transporte-android.md); o contrato JS em `src/specs/NativeCoreNext.ts` e
 `src/types/events.ts`.
 
@@ -118,7 +120,8 @@ A reconexão usa `session.reconnect(...)` com um `requestId` interno (sem Promis
 `method: null`. Quando o link cai depois de `READY`, quem reconecta é a sessão do Repo 1 (`connect(address, true)`
 na hora), sem passar por aqui; o transporte só mantém a conexão pendente que ela pediu (`transporte-android.md`). Se
 o relógio recusar o LOGIN, a sessão desiste (`HANDSHAKE_FAILED`, ADR 11 do Repo 1) e só um `onHostResume` ou
-`initialize` seguinte tenta de novo, com um LOGIN por vez e nunca um BIND.
+`initialize` seguinte tenta de novo, com um LOGIN por vez e nunca um BIND. O mesmo vale para `PAIRING_REMOVED` (o
+vínculo do sistema apagado no relógio, ADR 23 do Repo 1): uma tentativa por gatilho, sem laço.
 
 ## Threads
 
@@ -197,7 +200,8 @@ fuso do telefone antes de pegar a data, porque o app pode devolver datas em UTC.
 
 Os da sessão (`WatchErrorCodes` do Repo 1): `NOT_READY`, `UNSUPPORTED_DEVICE`, `CONNECT_TIMEOUT`,
 `GATT_NOT_SUPPORTED`, `HANDSHAKE_FAILED`, `TIMEOUT`, `PROTOCOL`, `NO_DATA`, `TRANSPORT`, `DISCONNECTED`,
-`CANCELLED` e `BUSY` (este reservado: a sessão não o emite, um pareamento novo cancela o anterior com
+`PAIRING_REMOVED` (o telefone guarda um vínculo Bluetooth que o relógio apagou; hoje só o host iOS o detecta, ADR 23 do
+Repo 1), `CANCELLED` e `BUSY` (este reservado: a sessão não o emite, um pareamento novo cancela o anterior com
 `CANCELLED`, ADR 13 do Repo 1). Os que nascem antes de chamar a sessão (`HostErrorCodes` do `:bridge`, Repo 1):
 
 | Código | Quando |
@@ -222,3 +226,51 @@ Só durante o sync: o `CoreBridge` pede `startSyncWork` em `onSyncStarted` e `st
 `onError` do sync ou quando a sessão sai de `READY`/`SYNCING`; o `AndroidCoreHost` sobe e desce o
 `SyncForegroundService`. Detalhes e limites em
 [`transporte-android.md`](transporte-android.md#serviço-em-primeiro-plano-só-no-sync).
+
+## iOS
+
+O mesmo desenho, com as peças do iOS no lugar das do Android; o `CoreBridge` e a sessão são o mesmo código (o framework
+`TechnosWatchProtocol` do Repo 1). Detalhes, decisões e o que falta validar: [`ios-pendente.md`](ios-pendente.md).
+
+| Camada | Android | iOS |
+|---|---|---|
+| Módulo | `NativeCoreNextModule.kt` | `ios/CoreNext/turbomodule/RCTNativeCoreNext.mm` (ObjC++; registrado por `codegenConfig.ios.modulesProvider`) |
+| Promise | `bridge/PromiseCompletion` + `WritableConverter` | `PromiseCompletion` (Swift, `CoreNext.swift`) + `FoundationConverter` do Repo 1 |
+| Payload dos eventos | `WritableConverter.toMap` | `TWPFoundationConverter toDictionaryPayload:` (booleanos como `CFBoolean`) |
+| Montagem | `CoreGraph.kt` (criado no primeiro método JS) | `CoreGraph.swift` (criado por `CoreNext.bootstrap` no `AppDelegate`, se o app já tem a autorização ou foi relançado para o Bluetooth; senão no primeiro método JS) |
+| Plataforma | `AndroidCoreHost.kt` | `IosCoreHost.swift` |
+| Transporte | `ble/AndroidGattTransport` (`HandlerThread` "corenext-gatt") | `ble/CentralTransport` (fila serial `br.com.grupotechnos.corenext.ble`) |
+| Estado do Bluetooth | `BluetoothStateReceiver` + `reportBluetoothOffAtStartup` | `centralManagerDidUpdateState` + `BluetoothPowerTracker` |
+| Scan | `BleScanner` (filtros por nome e serviço) | dentro do `CentralTransport` (sem filtro de serviço, filtrado pelo `DeviceRegistry`) |
+| Sync em segundo plano | `SyncForegroundService` | `UIKitBackgroundWork` (`beginBackgroundTask`) |
+| Histórico | `filesDir/corenext/*.json` | `Application Support/corenext/*.json` |
+| Pareamento | `SharedPreferences` `corenext.pairing` | `UserDefaults(suiteName: "br.com.grupotechnos.corenext.pairing")` |
+| Export | `getExternalFilesDir(null)/corenext/` | `Documents/corenext/` (app Arquivos) |
+| Log do sistema | Logcat, tag `CoreNext` | `os_log`, subsistema `br.com.grupotechnos.corenext` |
+| Endereço | MAC | UUID do `CBPeripheral` |
+| Volta ao primeiro plano | `LifecycleEventListener.onHostResume` | `UIApplicationWillEnterForegroundNotification` |
+
+```
+JS (TechnosCore, TechnosEvents)
+   │ métodos (Promise)                        ▲ eventos (emitOnX: → AsyncEventEmitter → thread JS)
+   ▼                                          │
+RCTNativeCoreNext.mm ── casca: TCNPromiseCompletion, FoundationConverter; é o TWPCoreEventSink
+   │ um método = uma chamada                  ▲ emitName:payload:
+   ▼                                          │
+TWPCoreBridge (Repo 1, framework TechnosWatchProtocol)
+   │ comandos         ▲ WatchSessionListener        │ CoreHost
+   ▼                  │                             ▼
+WatchSession (Repo 1)                        IosCoreHost ── PairingStore, FrameRecorder, RingLogger, UIKitBackgroundWork
+   │ Transport        ▲ TransportEvents (direto da fila do Bluetooth)
+   ▼                  │
+CentralTransport ──▶ CBCentralManager / CBPeripheral
+(o RingLogger e o FileSampleStore são o WatchLogger e o SampleStore da sessão; o CoreGraph monta tudo)
+```
+
+**Threads no iOS.** Os métodos do TurboModule rodam na fila que o RN cria para o módulo; o listener da sessão, no pool
+do GCD (uma vez por vez, thread variável); o `CentralTransport` e os callbacks do CoreBluetooth, na fila
+`br.com.grupotechnos.corenext.ble`; a volta ao primeiro plano, na principal. O `IosCoreHost` é chamado de qualquer uma
+delas e só toca peças thread-safe.
+
+**Testes do iOS.** Sem React Native e sem Bluetooth, no simulador (`ios/Tests/`): o host inteiro com as gravações reais
+dos dois relógios, o contrato B e a fila de operações. Ver [`../ios/Tests/README.md`](../ios/Tests/README.md).

@@ -12,7 +12,11 @@ example/ios/build/
 *.iml
 .idea/
 local.properties
+# XCFramework do Repo 1, copiado por ios/scripts/sync-xcframework.sh (binário gerado; não versionar).
 ios/Frameworks/
+# Estado do Xcode/SwiftPM do pacote de testes do iOS (ios/Package.swift).
+ios/.swiftpm/
+ios/.build/
 # Exports do exemplo (adb pull): o logs-*.jsonl tem o MAC do relógio e nunca vai para o git.
 corenext-export/
 logs-*.jsonl

@@ -21,10 +21,13 @@ beforeEach(() => {
 	mockReset();
 	// A FlatList da aba Log agenda renders com setTimeout; com timers falsos eles rodam dentro do act.
 	jest.useFakeTimers();
+	// O App loga o initialize e cada estado para o console do Xcode; aqui só polui a saída.
+	jest.spyOn(console, "info").mockImplementation(() => {});
 });
 
 afterEach(() => {
 	jest.useRealTimers();
+	jest.restoreAllMocks();
 });
 
 it("renderiza as três abas, inicializa o módulo e mostra o estado vindo do evento", async () => {

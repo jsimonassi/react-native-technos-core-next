@@ -1,4 +1,4 @@
-import { deviceConnectStates, utils } from "react-native-technos-core-next";
+import { deviceConnectStates, errorCodes, utils } from "react-native-technos-core-next";
 
 /** Rótulo em português de `onConnectStateChanged.state`. */
 export const connectStateLabel = (state: number | null | undefined): string => {
@@ -100,11 +100,22 @@ export const todayKey = (now: Date = new Date()): string =>
 /** JSON indentado com tabs, para os blocos de payload cru. */
 export const prettyJson = (value: unknown): string => JSON.stringify(value, null, "\t");
 
-/** Mensagem curta de um erro: `CODE: mensagem` quando veio do nativo. */
+/**
+ * O que a pessoa tem de fazer para um código de erro que o app não resolve sozinho, ou `null`. Hoje só
+ * `PAIRING_REMOVED`: o iPhone guarda um vínculo Bluetooth que o relógio apagou, e só os Ajustes o removem.
+ */
+export const errorHint = (code: string | null | undefined): string | null =>
+	code === errorCodes.PAIRING_REMOVED
+		? "Esqueça o relógio em Ajustes > Bluetooth do iPhone e tente parear de novo."
+		: null;
+
+/** Mensagem curta de um erro: `CODE: mensagem` quando veio do nativo, com a dica de {@link errorHint} na frente. */
 export const describeError = (error: unknown): string => {
 	const code = utils.errors.getErrorCode(error);
 	const message = error instanceof Error ? error.message : String(error);
-	return code ? `${code}: ${message}` : message;
+	const hint = errorHint(code);
+	const described = code ? `${code}: ${message}` : message;
+	return hint ? `${hint}\n${described}` : described;
 };
 
 /** Metros em quilômetros com duas casas (`1234` → `"1,23 km"`). */
