@@ -118,14 +118,19 @@ serviços que acelera a reconexão.
 - `discoverServices()` → `onServicesDiscovered(services, status)` com cada serviço e characteristic em UUID de 128 bits
   minúsculo (`GattUuid.normalize`) e as flags `canRead` (`PROPERTY_READ`), `canWrite` (`PROPERTY_WRITE`),
   `canWriteWithoutResponse` (`PROPERTY_WRITE_NO_RESPONSE`), `canNotify` (`PROPERTY_NOTIFY` ou `PROPERTY_INDICATE`).
-  A escolha entre `FF60/FF61/FF62` e o NUS `6E400001/02/03` é da sessão, pela ordem de `gattCandidates` do perfil.
+  A escolha entre `FF60/FF61/FF62` e o NUS `6E400001/02/03` é da sessão, pela ordem de `gattCandidates` do perfil;
+  no Life Ultra GPS o candidato é o serviço `0af0` (escrita `0af6`, notificações `0af7` e `0af2`).
   O fitGPS 0.2.1 expõe só o NUS: a descoberta trouxe `1800`, `1801`, `6e400001` e `180a`, sem `FF60`, nas duas
   conexões gravadas (log `logs-20261029-083254.jsonl`, linhas 14 e 119, ts 1793272450855 e 1793273190432).
 - `enableNotifications(service, ch)` → `setCharacteristicNotification(ch, true)` e escrita de `01 00`
   (`ENABLE_NOTIFICATION_VALUE`) no descritor `0x2902`, como a SDK (`SmaMessenger.java:62-69`). Se a characteristic só
-  tiver `INDICATE`, escreve `02 00`. Sem descritor `0x2902` → `GattStatus.NOT_FOUND`.
-- `requestMtu(mtu)` → `onMtuChanged(requestId, mtuEfetivo, status)`. A sessão pede 247 (`Quirks.requestMtu`); a SDK
-  pede 512 (`SmaManager.java:204`). Mudança de MTU sem pedido pendente só atualiza o valor efetivo (usado no cabeçalho
+  tiver `INDICATE`, escreve `02 00`. Sem descritor `0x2902` → `GattStatus.NOT_FOUND`. A sessão chama uma vez por
+  characteristic, uma de cada vez: no iDO, `0af7` e depois `0af2` (`GattCandidate.extraNotify` do Repo 1, a ordem da SDK
+  iDO); as notificações das duas vão para a sessão como qualquer outra.
+- `requestMtu(mtu)` → `onMtuChanged(requestId, mtuEfetivo, status)`. No fitGPS a sessão pede 247 (`Quirks.requestMtu`);
+  a SDK pede 512 (`SmaManager.java:204`). No Life Ultra GPS a sessão não chama `requestMtu` (`requestMtu = 23`; a SDK
+  iDO também não pede), e todo frame tem no máximo 20 bytes; o Android 14+ pode negociar um MTU maior sozinho, o que só
+  muda o `currentMtu` do cabeçalho da gravação. Mudança de MTU sem pedido pendente só atualiza o valor efetivo (usado no cabeçalho
   do fixture). **Visto no fitGPS 0.2.1:** o pedido de 247 voltou com MTU efetivo **23 e status 0**, ou seja, foi uma
   negociação bem-sucedida para 23, não o caminho de falha da ADR 5 do Repo 1 (log `logs-20261029-083254.jsonl`,
   linhas 17 e 122, ts 1793272450905 e 1793273190489; cabeçalho `"mtu":23` da fixture
@@ -133,15 +138,17 @@ serviços que acelera a reconexão.
 
 ## Escrita
 
-- A sessão sempre pede `WITH_RESPONSE` (`SmaDriver.sendFrame` e `SmaDriver.writeControl` do Repo 1), sem olhar
-  as propriedades descobertas; o transporte o traduz para `WRITE_TYPE_DEFAULT`. `WITHOUT_RESPONSE` →
-  `WRITE_TYPE_NO_RESPONSE` só está mapeado porque o contrato do `Transport` o permite. A SDK nunca define o tipo e herda
-  o inicial da characteristic (`SmaMessenger.java:118-119`); as propriedades da `6e400002` não ficam no log, então não
-  se sabe qual tipo a SDK usa de fato no fitGPS.
+- O tipo vem do driver do Repo 1, sem olhar as propriedades descobertas. O SMA pede `WITH_RESPONSE`
+  (`SmaDriver.sendFrame` e `SmaDriver.writeControl`), que o transporte traduz para `WRITE_TYPE_DEFAULT`; a SDK SMA nunca
+  define o tipo e herda o inicial da characteristic (`SmaMessenger.java:118-119`), e as propriedades da `6e400002` não
+  ficam no log, então não se sabe qual tipo ela usa de fato no fitGPS. O iDO pede `WITHOUT_RESPONSE`
+  (`WRITE_TYPE_NO_RESPONSE`), como a SDK iDO em produção (`docs/protocolo-ido.md` do Repo 1, seção 1).
 - API 33+: `writeCharacteristic(ch, value, writeType)` (devolve código; o array é copiado pela pilha).
   Abaixo: `ch.writeType = ...; ch.value = ...; writeCharacteristic(ch)`. O mesmo para o descritor.
 - O Android chama `onCharacteristicWrite` também para `WRITE_TYPE_NO_RESPONSE`, então a fila avança igual nos dois
-  tipos (no iOS não é assim, ver `ios-pendente.md`).
+  tipos (no iOS não é assim, ver `ios-pendente.md`). É obrigatório, não só conveniente: o `BluetoothGatt` marca o link
+  ocupado em toda escrita e só o libera nesse callback, e a SDK iDO dá o ritmo das escritas sem resposta exatamente por
+  ele. Se um aparelho não o entregar, o timeout de 4 s da fila termina a escrita com `TIMEOUT` e a sessão vê `TRANSPORT`.
 - O transporte copia o array recebido antes de enfileirar: a sessão pode reutilizar o buffer.
 
 ## Notificações
@@ -156,8 +163,10 @@ com MTU 23, o cabeçalho L1 de 8 bytes chegou sempre sozinho numa notificação 
 
 ## Scan (`BleScanner`)
 
-- Filtros (OU): nome `Mormaii_fitGPS` (o filtro seguro, igual ao Core atual, `SMAService.java:505-526`) e o serviço de
-  cada `GattCandidate` do perfil.
+- Filtros (OU), tirados de `Profiles.all` do Repo 1 (`BleScanner.filterSpec`, testado no `BleScannerFilterTest`): os
+  nomes de cada perfil (`Mormaii_fitGPS`, o filtro seguro, igual ao Core atual, `SMAService.java:505-526`;
+  `Life Ultra GPS` e `Smart Watch 6010` no iDO) e o serviço de cada `GattCandidate` (`FF60`, NUS, `0af0`). Um perfil novo
+  no Repo 1 entra no scan sem mudança aqui.
 - `SCAN_MODE_LOW_LATENCY`, 7 s (`SMAService.java:625-635`). Um `onScannedDevice` por endereço por scan.
 - Cada resultado passa por `DeviceRegistry.identify(nome, serviços anunciados)`. Nome: `scanRecord.deviceName`, e
   `device.name` se o anúncio não trouxer nome.

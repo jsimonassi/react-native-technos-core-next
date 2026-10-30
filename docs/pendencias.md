@@ -8,7 +8,11 @@ A **validação no relógio** que ainda falta (dois syncs seguidos para ver se o
 forget e novo pareamento olhando a tela no BIND; caminhada cruzando uma hora cheia, para ver como a hora fecha; robustez do link; H8 com o
 app Mormaii iOS; uma noite de sono) foi adiada: o sono já não funcionava no Core atual e isto é uma prova de conceito. O
 roteiro fica no [`docs/pendencias.md` do Repo 1](../../technos-watch-protocol/docs/pendencias.md), junto com as
-pendências de protocolo; este documento não o repete.
+pendências de protocolo; este documento não o repete. O mesmo vale para o Life Ultra GPS (iDO), que ainda não falou
+com este app: roteiro no [`example/README.md`](../example/README.md#checklist-com-o-life-ultra-gps-ido) e caixas na
+seção "Life Ultra GPS (iDO)" do Repo 1. Do lado do host, o que só o aparelho confirma: que o `onCharacteristicWrite`
+chega para as escritas sem resposta (senão a fila espera 4 s e falha com `TIMEOUT`, `transporte-android.md`) e que os
+dois CCCD (`0af7`, `0af2`) são aceitos sem vínculo BLE do sistema.
 
 Fontes do app Mormaii: `GTE-Mormaii/src/...`, só leitura.
 

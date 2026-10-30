@@ -1,7 +1,8 @@
 # App de exemplo
 
 App React Native 0.81.4 (a mesma versão do app Mormaii) para validar o `react-native-technos-core-next` com o relógio
-de verdade. É o equivalente ao `examples/basic` do Core atual, reduzido ao escopo da PoC: Mormaii fitGPS, Android.
+de verdade. É o equivalente ao `examples/basic` do Core atual, reduzido ao escopo da PoC: Mormaii fitGPS e Mormaii Life
+Ultra GPS (iDO, funções básicas), Android.
 
 A biblioteca é ligada da raiz do repositório, sem cópia em `node_modules`: `react-native.config.js` (autolinking),
 `metro.config.js` (`watchFolders`/`extraNodeModules`), `tsconfig.json` (`paths`) e `jest.config.js`
@@ -19,8 +20,9 @@ A biblioteca é ligada da raiz do repositório, sem cópia em `node_modules`: `r
   cd ../../technos-watch-protocol && ./gradlew publishToMavenLocal
   ```
 
-- Um Mormaii fitGPS carregado. Feche o app Mormaii em outros celulares por perto: um periférico BLE já conectado em
-  geral para de anunciar e não aparece no scan.
+- Um Mormaii fitGPS ou Life Ultra GPS carregado. Feche o app Mormaii em outros celulares por perto: um periférico BLE já
+  conectado em geral para de anunciar e não aparece no scan. Com o Life Ultra GPS, desfaça o pareamento no app Mormaii
+  de produção (ou force a parada dele) antes de testar, para os dois apps não disputarem o relógio.
 
 ## Rodar
 
@@ -48,8 +50,9 @@ zero: `adb uninstall br.com.grupotechnos.corenext.example` e `npm run android` d
 ## As três abas
 
 **Conexão.** Permissões; situação do `initialize()`; estado (`state` numérico, `sessionState` e fase do handshake);
-último erro; `Disconnect` (desconecta e mantém o pareamento); `Forget` (UNBIND, apaga pareamento e histórico);
-`Reconnect last` (`getLastPairedDevice` + `startPairingAttempt`); `isConnected()`; `Scan`/`Stop` (7 s) com a lista
+último erro; `Disconnect` (desconecta e mantém o pareamento); `Forget` (UNBIND quando o modelo suporta, nunca no Life
+Ultra GPS; apaga pareamento e histórico); `Reconnect last` (`getLastPairedDevice` + `startPairingAttempt`);
+`isConnected()`; `Scan`/`Stop` (7 s) com a lista
 `{name, bleName, deviceId, rssi}`; toque num relógio = `pairDevice`, com spinner até resolver ou rejeitar. Cartões
 Relógio (`getDeviceInfo` + `getFirmwareInfo`), Bateria, Hora (`setTime`) e Passos de hoje (`refreshSteps`).
 
@@ -115,6 +118,26 @@ anunciados no scan (linha `BleScanner/onScanResult` do log) e os arquivos export
 1793272444786): o
 relógio só aparece no scan pelo filtro de nome `Mormaii_fitGPS`. Vale conferir de novo em outro firmware.
 
+## Checklist com o Life Ultra GPS (iDO)
+
+O driver iDO do Repo 1 foi escrito a partir do log de bytes da SDK de produção (`docs/protocolo-ido.md` de lá) e nunca
+falou com o relógio por este app: este roteiro é a primeira validação. Antes de começar: pareamento desfeito no app
+Mormaii de produção (ou o app parado), `Clear` na aba Log, "Hex dos frames" ligado, relógio perto.
+
+| # | Passos | Esperado |
+|---|---|---|
+| I1 | Conexão → `Scan`. | A lista mostra `Life Ultra GPS`, `Life Ultra GPS · lifeultragps` (ou `Smart Watch 6010 · lifeultragps`), o MAC e o RSSI. Se não aparecer, anote o nome e os serviços da linha `BleScanner/onScanResult`. |
+| I2 | Tocar no `Life Ultra GPS`. Confirmar na tela do relógio. | O estado passa por `CONNECTING`, `CONFIGURING`, `HANDSHAKING · BIND` e fica nele até o toque; depois `Conectado (2)` `READY` e "Pareado com Life Ultra GPS". No log: `Session/configure` com `extra notify [00000af2-…]`, dois `enableNotifications` (`0af7` e depois `0af2`) e "MTU not requested"; pacotes `TX`/`RX` `02/01`, `04/01`, `04/05` (o `RX 04/05` só depois do toque) e, 1 s depois do READY, `03/01`. Nenhum `AndroidGattTransport/write` com status de erro. |
+| I3 | Repetir I2 recusando na tela (ou deixando a tela sem resposta por 90 s). | `HANDSHAKE_FAILED` e `Desconectado (0)`. Um pareamento novo pede a confirmação de novo. |
+| I4 | Cartão Relógio → `Ler`. Cartão Bateria → `Ler`. | Firmware `1.1.1` e `onFirmwareInfo` com `braceletType 0 · platformCode 0`. A porcentagem é a mesma da tela do relógio. |
+| I5 | Cartão Hora → `Set time` (com a hora do celular alguns minutos à frente, como no A5). | "Hora enviada" e o relógio mostra a mesma hora e o mesmo dia da semana. |
+| I6 | `Refresh steps`; Dados → `Sync`; depois `Passos`. | Passos e distância de hoje iguais aos da tela do relógio (a distância do relógio pode estar em milhas). As calorias não batem: o app mostra as totais do `02/A0` (repouso + atividade; 13 no log de produção) e a tela, só as de atividade (0 no mesmo momento); anote os dois valores. O `Sync` termina em menos de um segundo; `Passos` lista hoje. `Sono` responde `NO_DATA`. |
+| I7 | Bluetooth do celular desligado e religado; depois `Disconnect` e `Reconnect last`. | Volta a `Conectado (2)` com `HANDSHAKING · LOGIN`, só `02/01` e `03/01` no log, sem tela de confirmação no relógio. |
+| I8 | `Forget` e repetir I2. | `Desconectado (0)` e "Último pareado: nenhum"; nenhum TX no `Forget` (os bytes do desvínculo iDO não são conhecidos; o log tem `UNBIND failed (...)`). O novo pareamento pede a confirmação de novo. |
+| I9 | `Export` depois de cada cenário. | Copie o `frames-*.jsonl` mais recente para `technos-watch-protocol/fixtures/real/lifeultragps/1.1.1/<cenário>.jsonl`; ele roda no `IdoRealFixturesReplayTest` do Repo 1. O `logs-*.jsonl` tem o MAC e não entra no repositório. |
+
+Registre os resultados nas caixas da seção "Life Ultra GPS (iDO)" do `docs/pendencias.md` do Repo 1.
+
 O que a primeira gravação com o relógio (2026-10-29) já respondeu está em
 [`../docs/transporte-android.md`](../docs/transporte-android.md#o-que-a-gravação-do-fitgps-mostrou); o que ainda
 falta testar no aparelho, no `docs/pendencias.md` do Repo 1.
@@ -151,7 +174,8 @@ __tests__/                   # Jest
 - **Nada aparece no scan.** Veja "Último erro" no cartão Estado: `PERMISSION_DENIED` (permissões) ou `BLUETOOTH_OFF`.
   Sem erro: o relógio pode estar conectado a outro celular ou longe.
 - **`HANDSHAKE_FAILED` no pareamento.** O relógio não respondeu o BIND/LOGIN, ou a confirmação na tela não foi feita
-  em 60 s. Tente de novo; se repetir, `Forget` e reinicie o relógio.
+  em 60 s (90 s no Life Ultra GPS). Tente de novo; se repetir, `Forget` e reinicie o relógio. No Life Ultra GPS, uma
+  reconexão com `HANDSHAKE_FAILED` quer dizer que o relógio se diz desvinculado (`pairFlag` 0): pareie de novo.
 - **`NOT_READY` nos botões.** O estado não é `Conectado (2)`.
 - **`Passos` volta vazio.** Rode o `Sync` antes: `getHistoryPedometer` lê só o histórico local.
 - **Build falha com `Could not find br.com.grupotechnos.watch:bridge:0.1.0` (ou `protocol:0.1.0`).** Falta o

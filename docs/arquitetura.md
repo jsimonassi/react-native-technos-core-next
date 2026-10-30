@@ -1,7 +1,9 @@
 # Arquitetura do `react-native-technos-core-next`
 
-Visão do Repo 2: um TurboModule fino sobre o `technos-watch-protocol` (Repo 1). Esta PoC cobre a família SMA
-(Mormaii fitGPS) no Android. O que cada método JS faz (checagens, eventos, ordem evento/`resolve`, rejeições,
+Visão do Repo 2: um TurboModule fino sobre o `technos-watch-protocol` (Repo 1). Esta PoC cobre as famílias SMA
+(Mormaii fitGPS) e iDO (Mormaii Life Ultra GPS, funções básicas) no Android. O host não tem código por família: os
+filtros do scan saem de `Profiles.all`, e o perfil diz à sessão quais CCCD ligar (no iDO, dois), se pede MTU e o tipo de
+escrita que o driver usa (no iDO, sem resposta). O que cada método JS faz (checagens, eventos, ordem evento/`resolve`, rejeições,
 pareamento salvo, reconexão automática) mora no `CoreBridge` do `:bridge` do Repo 1, descrito na seção 13 do
 [`docs/arquitetura.md` de lá](../../technos-watch-protocol/docs/arquitetura.md#13-controlador-comum-corebridge); aqui
 fica a plataforma. O iOS está descrito em [`ios-pendente.md`](ios-pendente.md); o transporte Android em detalhe em

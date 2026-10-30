@@ -15,8 +15,10 @@ Guia curto para agentes e para quem chega agora. O que a biblioteca faz e como c
   os eventos e a ordem evento/`resolve`, as rejeições, o `NO_DATA`, o pareamento salvo, o FGS do sync, a reconexão
   automática e o ciclo de vida do módulo moram no `CoreBridge` (`:bridge`). Se a mudança mexe em algum desses, ela vai
   para lá.
-- Escopo da PoC: família SMA (Mormaii fitGPS), só Android. Fora: iOS (só o podspec esqueleto, ver
-  [`docs/ios-pendente.md`](docs/ios-pendente.md)), DFU, notificações, chamadas, outras famílias, CI e publicação.
+- Escopo da PoC: famílias SMA (Mormaii fitGPS) e iDO (Mormaii Life Ultra GPS, só as funções básicas), só Android. Os
+  perfis, os nomes do scan, os UUIDs e os CCCD vêm do Repo 1 (`Profiles.all`); nada aqui é escrito por família. Fora:
+  iOS (só o podspec esqueleto, ver [`docs/ios-pendente.md`](docs/ios-pendente.md)), DFU, notificações, chamadas, outras
+  famílias e modelos, CI e publicação.
 - O `TechnosWareCore` e o app Mormaii são só referência de leitura; cite-os (`arquivo:linha`), não mude nada lá.
 
 ## Dependência do Repo 1 (Maven local)
@@ -86,7 +88,8 @@ formato de fixture do Repo 1) e `logs-<carimbo>.jsonl` (o anel de 2000 entradas)
 adb pull /storage/emulated/0/Android/data/br.com.grupotechnos.corenext.example/files/corenext ./corenext-export
 ```
 
-A gravação de frames vira fixture real do Repo 1 em `fixtures/real/fitgps/<fw>/<cenário>.jsonl` (formato no
+A gravação de frames vira fixture real do Repo 1 em `fixtures/real/<perfil>/<fw>/<cenário>.jsonl` (`fitgps` ou
+`lifeultragps`; formato no
 `docs/fixtures.md` de lá). Um cenário por gravação: `Export` antes de cada `Clear` (o `Clear` apaga o anel e a
 gravação). Os exports são cumulativos (o anterior é prefixo do seguinte): copie só o `frames-*.jsonl` mais recente.
 **Nunca** versione `logs-*.jsonl` nem a pasta `corenext-export/`: o log tem o MAC do relógio. Quem os ignora é o

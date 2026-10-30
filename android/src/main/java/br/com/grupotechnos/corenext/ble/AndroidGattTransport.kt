@@ -508,9 +508,12 @@ class AndroidGattTransport(
 		value: ByteArray,
 		type: WriteType,
 	): Int {
-		// A sessão sempre pede WITH_RESPONSE (`SmaDriver.sendFrame` e `SmaDriver.writeControl` do Repo 1), sem
-		// olhar as propriedades descobertas; WITHOUT_RESPONSE só está mapeado porque o contrato do `Transport` o
-		// permite. A SDK SMA nunca define o tipo e herda o inicial da characteristic (`SmaMessenger.java:118-119`).
+		// O tipo vem do driver do Repo 1: o SMA pede WITH_RESPONSE (`SmaDriver.sendFrame`/`writeControl`; a SDK SMA herda o
+		// tipo da characteristic, `SmaMessenger.java:118-119`), o iDO pede WITHOUT_RESPONSE (`IdoDriver`, como a SDK iDO em
+		// produção). A fila espera o `onCharacteristicWrite` nos dois casos: o `BluetoothGatt` marca o link ocupado em toda
+		// escrita e só o libera nesse callback, que vem também para Write Command (quando o pacote vai para o controlador);
+		// é por ele que a SDK iDO dá o ritmo (`connect/drizzle.java:51-81` da SDK decompilada). Sem o callback, o timeout de
+		// 4 s da fila termina a escrita com `TIMEOUT`.
 		val writeType = when (type) {
 			WriteType.WITH_RESPONSE -> BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
 			WriteType.WITHOUT_RESPONSE -> BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE

@@ -6,16 +6,18 @@ codecs (`:protocol`) e o que cada método JS faz (o `CoreBridge`, no `:bridge`: 
 evento/`resolve`, rejeições, pareamento salvo, reconexão automática). Esta biblioteca é a casca React Native sobre o
 `CoreBridge` e é dona do BLE do Android, do histórico local e do log.
 
-**Estado: PoC.** Família SMA (Mormaii fitGPS), só Android, RN 0.81 com a nova arquitetura. O iOS ainda não existe
+**Estado: PoC.** Famílias SMA (Mormaii fitGPS) e iDO (Mormaii Life Ultra GPS, só as funções básicas: pareamento com confirmação na tela, reconexão, bateria, firmware, hora e o total de passos do dia), só Android, RN 0.81 com a nova arquitetura. O iOS ainda não existe
 (ver [`docs/ios-pendente.md`](docs/ios-pendente.md)); importar a biblioteca no iOS lança erro. Uma primeira sessão
 com o relógio real (fitGPS 0.2.1, 2026-10-29) pareou, sincronizou e reconectou depois de desligar e religar o
 Bluetooth ([o que ela mostrou](docs/transporte-android.md#o-que-a-gravação-do-fitgps-mostrou)); o checklist completo
 ([`example/README.md`](example/README.md#checklist-de-aceite-com-o-fitgps)) ainda não foi feito. O que falta está em
-[`docs/pendencias.md`](docs/pendencias.md).
+[`docs/pendencias.md`](docs/pendencias.md). O Life Ultra GPS (iDO) foi testado no aparelho em 2026-10-30 com o driver próprio, sem SDK de fornecedor:
+pareamento com confirmação no relógio, bateria, firmware, hora e passos; a reconexão e o restante do roteiro
+([`example/README.md`](example/README.md#checklist-com-o-life-ultra-gps-ido)) ainda não foram gravados.
 
 ## Início rápido
 
-Pré-requisitos: Node 20+, JDK 17, Android SDK (`ANDROID_HOME`), um Android físico e um Mormaii fitGPS.
+Pré-requisitos: Node 20+, JDK 17, Android SDK (`ANDROID_HOME`), um Android físico e um Mormaii fitGPS ou Life Ultra GPS.
 
 ```sh
 # 1. Publicar os módulos do Repo 1 (:protocol e :bridge) no Maven local (~/.m2)
@@ -28,7 +30,8 @@ npm start               # terminal 1: Metro
 npm run android         # terminal 2
 ```
 
-No app: aba Conexão → `Scan` → tocar no `fitGPS` → confirmar no relógio se ele pedir → estado `Conectado (2)`.
+No app: aba Conexão → `Scan` → tocar no `fitGPS` ou no `Life Ultra GPS` → confirmar no relógio (o Life Ultra GPS sempre
+pede no primeiro pareamento) → estado `Conectado (2)`.
 
 ## Uso no app
 

@@ -19,10 +19,12 @@ import br.com.grupotechnos.watch.protocol.transport.GattUuid
 /**
  * Scan de relógios suportados. Fica fora do `Transport`: a sessão não sabe de scan, só de endereço.
  *
- * - Filtros (OU): nome de advertising de cada perfil (`Mormaii_fitGPS`, o filtro seguro, igual ao Core atual em
- *   `SMAService.java:505-526`) e o serviço de cada `GattCandidate`. O fitGPS 0.2.1 não anuncia o NUS (anúncio com
- *   `180f`, `180a` e `00000001-…`, `logs-20261029-083254.jsonl` linha 6, ts 1793272444786), então é o filtro de
- *   nome que o acha; o de serviço fica para outro firmware que anuncie. Os UUIDs anunciados continuam indo para o log.
+ * - Filtros (OU), tirados de `Profiles.all` do Repo 1 ([filterSpec]): o nome de advertising de cada perfil
+ *   (`Mormaii_fitGPS`, o filtro seguro, igual ao Core atual em `SMAService.java:505-526`; `Life Ultra GPS` e
+ *   `Smart Watch 6010` no iDO) e o serviço de cada `GattCandidate` (NUS, `FF60`, `0AF0`). O fitGPS 0.2.1 não anuncia o
+ *   NUS (anúncio com `180f`, `180a` e `00000001-…`, `logs-20261029-083254.jsonl` linha 6, ts 1793272444786), então é o
+ *   filtro de nome que o acha; o de serviço fica para um relógio que anuncie. Perfil novo no Repo 1 entra no scan sem
+ *   mudança aqui. Os UUIDs anunciados continuam indo para o log.
  * - `SCAN_MODE_LOW_LATENCY` por [SCAN_DURATION_MS] (7 s, o mesmo do Core atual, `SMAService.java:625-635`).
  * - Cada resultado passa por `DeviceRegistry.identify`; só perfis conhecidos viram [onDevice], uma vez por endereço
  *   por scan (o Core atual emite a cada anúncio).
@@ -141,17 +143,25 @@ class BleScanner(
 	}
 
 	private fun buildFilters(): List<ScanFilter> {
-		val names = Profiles.all.flatMap { it.bleNames }.distinct()
-		val services = Profiles.all.flatMap { profile -> profile.gattCandidates.map { it.service } }.distinct()
-		return names.map { ScanFilter.Builder().setDeviceName(it).build() } +
-			services.map { ScanFilter.Builder().setServiceUuid(ParcelUuid.fromString(it)).build() }
+		val spec = filterSpec()
+		return spec.names.map { ScanFilter.Builder().setDeviceName(it).build() } +
+			spec.services.map { ScanFilter.Builder().setServiceUuid(ParcelUuid.fromString(it)).build() }
 	}
 
 	private fun log(level: LogLevel, method: String, message: String) {
 		logger.log(level, "BleScanner/$method", message)
 	}
 
+	/** Nomes e serviços dos filtros de scan, em Kotlin puro (testável na JVM, sem o `ScanFilter` do Android). */
+	data class FilterSpec(val names: List<String>, val services: List<String>)
+
 	companion object {
 		const val SCAN_DURATION_MS = 7_000L
+
+		/** Um filtro por nome de advertising e um por serviço de candidato GATT de [profiles], sem repetição. */
+		fun filterSpec(profiles: List<DeviceProfile> = Profiles.all): FilterSpec = FilterSpec(
+			names = profiles.flatMap { it.bleNames }.distinct(),
+			services = profiles.flatMap { profile -> profile.gattCandidates.map { GattUuid.normalize(it.service) } }.distinct(),
+		)
 	}
 }

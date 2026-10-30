@@ -143,7 +143,7 @@ const ConnectionScreenView = ({ state, permissions, init, onClearDevices, onClea
 	const confirmForget = useCallback(() => {
 		Alert.alert(
 			"Esquecer relógio?",
-			"Desfaz o vínculo no relógio (UNBIND), apaga o pareamento salvo e o histórico local.",
+			"Desfaz o vínculo no relógio quando o modelo suporta (no Life Ultra GPS nada é enviado e o relógio continua vinculado), apaga o pareamento salvo e o histórico local.",
 			[
 				{ text: "Cancelar", style: "cancel" },
 				{

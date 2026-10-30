@@ -13,7 +13,8 @@ O que cada método faz do lado nativo mora no `CoreBridge` do `:bridge` do Repo 
 [`arquitetura.md`](arquitetura.md#o-que-mora-onde)), e o iOS vai usar o mesmo código. O contrato descrito aqui não
 mudou com essa troca: mesmos métodos, eventos, payloads, ordem e rejeições.
 
-Escopo da PoC: família SMA (Mormaii fitGPS), só Android. No iOS o import falha, porque
+Escopo da PoC: famílias SMA (Mormaii fitGPS) e iDO (Mormaii Life Ultra GPS, só as funções básicas), só Android. Os
+métodos, eventos e payloads são os mesmos para as duas; as diferenças de comportamento estão em cada item. No iOS o import falha, porque
 `TurboModuleRegistry.getEnforcing("NativeCoreNext")` não acha o módulo (ver `ios-pendente.md`).
 
 ## Sumário
@@ -151,10 +152,13 @@ Interrompe a busca antes dos 7 s. Novo.
 ### `pairDevice(deviceId: string, name: string): Promise<void>`
 
 Primeiro pareamento: conexão direta, descoberta de serviços, notificações, MTU e handshake completo (BIND e LOGIN no
-SMA). Use os campos `deviceId` e `name` de um `onScannedDevice`.
+SMA; no iDO, informação básica, bind e autenticação, com a tela de confirmação no relógio). Use os campos `deviceId` e
+`name` de um `onScannedDevice` (`"fitGPS"` ou `"Life Ultra GPS"`).
 
 - Resolve: quando a sessão chega em `READY` (o mesmo momento do `onConnectStateChanged` com `state: 2`). O BIND
-  espera até 60 s pela confirmação na tela do relógio (`Quirks.bindTimeoutMs` do perfil fitGPS, `Profiles.kt`).
+  espera até 60 s pela confirmação na tela do relógio (`Quirks.bindTimeoutMs` do perfil fitGPS, `Profiles.kt`); no
+  Life Ultra GPS, até 90 s, e o relógio sempre pede a confirmação no primeiro pareamento (recusar na tela rejeita com
+  `HANDSHAKE_FAILED`).
 - Rejeita na hora: `PERMISSION_DENIED` (falta `BLUETOOTH_CONNECT`), `BLUETOOTH_OFF`, `INVALID_ARGUMENT` (`deviceId`
   não é MAC), `UNSUPPORTED_DEVICE` (`name` desconhecido).
 - Rejeita depois: `CONNECT_TIMEOUT` (30 s sem abrir o link, `Quirks.connectTimeoutMs`), `GATT_NOT_SUPPORTED`,
@@ -202,6 +206,8 @@ pareamento salvo e o histórico local continuam.
 ### `forgetDevice(): Promise<void>`
 
 Desconecta, desfaz o vínculo no relógio (UNBIND `03/05`, se conectado), apaga o pareamento salvo e o histórico local.
+No Life Ultra GPS os bytes do desvínculo não são conhecidos: nada é escrito no relógio, que continua se dizendo
+vinculado; o resto acontece igual, e o próximo `pairDevice` pede a confirmação na tela de novo.
 
 - Resolve: quando a sessão volta a `DISCONNECTED`.
 - Core atual: é o que `disconnectCurrentDevice` faz lá (ver acima). O app Mormaii chama `disconnectCurrentDevice` no
@@ -240,7 +246,7 @@ Mesma leitura de `getDeviceInfo`, mas emite [`onFirmwareInfo`](#onfirmwareinfo),
 
 ### `getBatteryStatus(): Promise<void>`
 
-Lê a bateria (comando `02/08`). Emite [`onBatteryStatus`](#onbatterystatus) e resolve. Rejeita com `NOT_READY`,
+Lê a bateria (comando `02/08` no SMA; `02/01`, a informação básica, no iDO). Emite [`onBatteryStatus`](#onbatterystatus) e resolve. Rejeita com `NOT_READY`,
 `TIMEOUT`, `DISCONNECTED`.
 
 - Core atual: `getBatteryStatus(): void` (`NativeCore.ts:64`). No iOS o `percentage` sai com lixo, porque o
@@ -248,23 +254,26 @@ Lê a bateria (comando `02/08`). Emite [`onBatteryStatus`](#onbatterystatus) e r
 
 ### `setTime(): Promise<void>`
 
-Acerta o relógio com a hora local de parede do telefone (comando `02/01`). A sessão também faz isso sozinha depois
-de cada conexão (passados `Quirks.postLoginDelayMs`, 3 s no fitGPS).
+Acerta o relógio com a hora local de parede do telefone (comando `02/01` no SMA; `03/01`, com o fuso, no iDO). A
+sessão também faz isso sozinha depois de cada conexão (passados `Quirks.postLoginDelayMs`, 3 s no fitGPS, 1 s no Life
+Ultra GPS).
 
 - Resolve: no ACK do relógio. Rejeita com `NOT_READY`, `TIMEOUT`, `DISCONNECTED`.
 - Core atual: não existe no JS; o Android acerta a hora 3 s depois do login (`SMAService.java:270-295`).
 
 ### `refreshSteps(): Promise<void>`
 
-Lê os passos recentes do relógio (`05/41`), grava no histórico local e emite [`onPedometer`](#onpedometer) com o
-total de hoje. Resolve depois do evento.
+Lê os passos recentes do relógio (`05/41` no SMA; no iDO, `02/A0`, os totais do dia ao vivo), grava no histórico
+local e emite [`onPedometer`](#onpedometer) com o total de hoje. Resolve depois do evento.
 
 - Core atual: não existe; o Android faz polling de 10 s com `readData([SPORT, ...])` (`SMAService.java:547-603`) e o
   iOS a cada 1 s (`SMAService.h:23`).
 
 ### `syncDataHistory(): Promise<void>`
 
-Lê o histórico do relógio (passos `05/41` e sono `05/45`) e grava no armazenamento local, com deduplicação. Enquanto
+Lê o histórico do relógio (passos `05/41` e sono `05/45`) e grava no armazenamento local, com deduplicação. No Life
+Ultra GPS não há histórico na PoC: o sync lê o mesmo total do dia do `refreshSteps` (`02/A0`) e nenhum sono, em menos
+de um segundo; um dia em que o app não leu o relógio fica sem passos. Enquanto
 roda, a sessão fica em `SYNCING` (o `state` continua 2) e um serviço em primeiro plano mantém o processo vivo.
 
 - Eventos: `onSyncStarted`, `onSyncProgress` (por etapa: 0 no início e `100 * (i + 1) / n` ao fim de cada tipo, então 0, 50 e 100 para passos e sono; `SyncEngine.kt` do Repo 1) e `onSyncFinished`.
@@ -295,7 +304,8 @@ novo, sem os dias já confirmados por `deletedSavedData`. Não fala com o relóg
 ### `getHistorySleep(): Promise<void>`
 
 Emite [`onHistorySleep`](#onhistorysleep) com as noites gravadas localmente, sem os dias confirmados. **Exploratório**:
-o sono do fitGPS nunca foi validado em produção.
+o sono do fitGPS nunca foi validado em produção. O Life Ultra GPS não tem sono na PoC (vem do protocolo V3): sempre
+`NO_DATA`.
 
 - Resolve: depois de emitir.
 - Rejeita com `NO_DATA` **e também emite `onError`** (`code: "NO_DATA"`, `method: "getHistorySleep"`) quando não há
@@ -392,7 +402,10 @@ interface ScannedDeviceEvent {
 
 ```json
 { "name": "fitGPS", "deviceId": "D4:3B:04:11:22:33", "rssi": -62, "bleName": "Mormaii_fitGPS", "profileId": "fitgps" }
+{ "name": "Life Ultra GPS", "deviceId": "C1:02:03:04:05:06", "rssi": -58, "bleName": "Life Ultra GPS", "profileId": "lifeultragps" }
 ```
+
+Os nomes que o scan aceita saem dos perfis do Repo 1 (`Mormaii_fitGPS`; `Life Ultra GPS` e `Smart Watch 6010`).
 
 Core atual: `{ name, deviceId, rssi }` com `name = "fitGPS"` (`SMAService.java:505-526`). O app Mormaii filtra por
 `ALLOWED_DEVICE_NAMES.includes(name)` (`GTE-Mormaii/src/constants/index.ts:138-148`), que continua valendo.
@@ -431,7 +444,7 @@ interface DeviceInfoEvent {
 	profileId: string;
 	bleName: string;
 	firmware: string; // "x.y.z"
-	bleVersion: string | null; // o SMA não informa: null
+	bleVersion: string | null; // null no SMA e no iDO
 }
 ```
 
@@ -446,8 +459,8 @@ Novo. Quando o relógio manda a versão sem pedido (`requestId -1`), saem `onDev
 ```ts
 interface FirmwareInfoEvent {
 	version: string;
-	braceletType: number; // 0 no fitGPS
-	platformCode: number; // 0 no fitGPS
+	braceletType: number; // 0 no fitGPS e no Life Ultra GPS
+	platformCode: number; // 0 no fitGPS e no Life Ultra GPS
 	deviceId: string;
 }
 ```
@@ -457,14 +470,16 @@ interface FirmwareInfoEvent {
 ```
 
 Core atual: `TechnosFirmwareInfo { version, braceletType: 0, platformCode: 0, deviceId?: number }`
-(`SMAService.java:241-244`, `EventHandler.kt:275-287`). Diferença: `deviceId` é sempre preenchido e é string (MAC).
+(`SMAService.java:241-244`, `EventHandler.kt:275-287`). Diferença: `deviceId` é sempre preenchido e é string (MAC). No
+Life Ultra GPS o `version` sai `"1.1.1"` (os três números do `02/EB`); o Core atual formata `"1.01.01"` e manda o
+`deviceId` da iDO (8294) como número (`SDKCallbacks.java:1022-1038`).
 
 ### `onBatteryStatus`
 
 ```ts
 interface BatteryStatusEvent {
 	percentage: number; // 0 a 100
-	charging: boolean; // o SMA não informa: sempre false
+	charging: boolean; // sempre false (o SMA não informa; o estado de carga do iDO não é repassado na PoC)
 	battery: string; // legado, "85%"
 }
 ```
