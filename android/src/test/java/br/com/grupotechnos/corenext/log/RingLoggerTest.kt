@@ -123,6 +123,26 @@ class RingLoggerTest {
 	}
 
 	@Test
+	fun readFrameIsRecordedWithReadDirection() {
+		// Leituras GATT (versão, firmware, bateria e passos do CRP) entram na gravação como "READ", e o replay as responde.
+		val logger = logger()
+		logger.frame(FrameDirection.READ, "00002a29-0000-1000-8000-00805f9b34fb", "MOYOUNG-V2".encodeToByteArray(), "")
+		val entry = logger.entries(1).single()
+		assertEquals(FrameDirection.READ, entry.dir)
+		assertEquals("Frame/2a29", entry.tag)
+		assertEquals("4D4F594F554E472D5632", entry.hex)
+		val file = File(folder.root, "read/frames.jsonl")
+		recorder.writeTo(file)
+		val packet = JSONObject(file.readLines()[1])
+		assertEquals("READ", packet.getString("dir"))
+		assertEquals("00002a29-0000-1000-8000-00805f9b34fb", packet.getString("characteristic"))
+		assertEquals("4D4F594F554E472D5632", packet.getString("hex"))
+		val logs = File(folder.root, "read/logs.jsonl")
+		logger.writeTo(logs)
+		assertEquals("READ", JSONObject(logs.readLines().single()).getString("dir"))
+	}
+
+	@Test
 	fun shortUuid() {
 		assertEquals("ff62", RingLogger.shortUuid("0000ff62-0000-1000-8000-00805f9b34fb"))
 		assertEquals("6e400003", RingLogger.shortUuid("6e400003-b5a3-f393-e0a9-e50e24dcca9e"))

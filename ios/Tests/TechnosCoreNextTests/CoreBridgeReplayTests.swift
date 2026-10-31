@@ -5,8 +5,8 @@ import XCTest
 
 /// O host iOS inteiro no simulador, sem Bluetooth: `CoreGraph` de verdade (o `CoreBridge` e a sessão do framework
 /// Kotlin, o `IosCoreHost`, o `FileSampleStore`, o `PairingStore`, o `RingLogger` e o `FrameRecorder`) sobre um
-/// `ReplayTransport` que responde com as gravações reais dos dois relógios, método JS por método JS, na ordem em que o
-/// app de exemplo os chamou. Cada Promise usa a `PromiseCompletion` de produção, e cada evento passa pelo
+/// `ReplayTransport` que responde com as gravações reais dos dois relógios (e a sintética do Condor Reebok, com os RX e
+/// READ reais da captura HCI do app Condor), método JS por método JS, na ordem em que o app de exemplo os chamou. Cada Promise usa a `PromiseCompletion` de produção, e cada evento passa pelo
 /// `FoundationConverter`, como no shim; o que o teste lê é o que o React Native receberia.
 ///
 /// Cada teste imprime uma linha `IOS-REPLAY` com o resultado (contagem de TX e os valores-chave).
@@ -219,6 +219,97 @@ final class CoreBridgeReplayTests: XCTestCase {
 		print("IOS-REPLAY \(harness.recording.source): \(replay.total) packets, TX matched \(replay.matchedTx)/\(replay.recordedTx), " +
 			"writes \(replay.writeTypes), steps 2026-10-30 = \(intValue(pedometer["pedometer"]) ?? -1), battery \(intValue(battery["percentage"]) ?? -1)%, " +
 			"sleep \(local.sleep), events \(harness.sink.events.count), export \(local.exportedTx) TX, \(Int(Date().timeIntervalSince(started) * 1000)) ms")
+	}
+
+	/// O Condor Reebok (CRP, P85) pela fixture sintética do Repo 1 (`synthetic/condorreebok-pair-sync.jsonl`: os TX que o
+	/// driver CRP manda e os RX e READ reais da captura HCI do app Condor). Pareamento só com a versão (2A29, `5A 00`,
+	/// `B7 0E`, `BB 16 00`, fase `VERSION`, sem BIND), o acerto de hora automático (`31` e `BB 07 00`), bateria e passos do
+	/// dia por leitura GATT, firmware pelo `5A 01`, o sync (meias horas do `59`, a sonda `33 01` sem resposta e o sono
+	/// vazio do `32`), a bateria espontânea de `2A19` e o `forgetDevice` (`F8`). O vínculo clássico volta "não suportado".
+	func testCondorReebokSyntheticFixture() throws {
+		let harness = try HostHarness(fixture: "synthetic/condorreebok-pair-sync.jsonl")
+		defer { harness.tearDown() }
+		let started = Date()
+		let bridge = harness.bridge
+
+		XCTAssertNil(harness.resolve("initialize") { bridge.initialize(completion: $0) })
+		let deviceId = try scanOne(harness, expectedName: "Condor Reebok", profileId: "condorreebok", bleName: "P85")
+
+		XCTAssertNil(harness.resolve("pairDevice", timeout: 30) { bridge.pairDevice(deviceId: deviceId, name: "Condor Reebok", completion: $0) })
+		XCTAssertEqual(intValue(harness.lastPayload("onConnectStateChanged")?["state"]), Int(states.CONNECTED))
+		XCTAssertTrue(
+			harness.sink.events(named: "onConnectStateChanged").contains { $0.payload["phase"] as? String == "VERSION" },
+			"the CRP handshake reports the VERSION phase"
+		)
+		XCTAssertEqual(harness.pairingDefaults.string(forKey: PairingStore.keyProfileId), "condorreebok")
+		harness.waitForAutomaticSetTime(after: 0, key: "BB/07")
+		XCTAssertEqual(harness.replay.snapshot().frameKeys, ["5A/00", "B7/0E", "BB/16", "31", "BB/07"])
+
+		// Vínculo clássico: o iOS responde "não suportado" com a dica; só um WARN do CoreBridge, sem onError.
+		harness.waitUntil("classic bond answered") {
+			harness.graph.logger.entries(limit: 2000).contains { $0.tag.hasSuffix("classicBond") && $0.message.contains("Settings > Bluetooth") }
+		}
+		XCTAssertFalse(harness.sink.events(named: "onError").contains { $0.payload["code"] as? String == HostErrorCodes.shared.CLASSIC_BOND_FAILED })
+
+		harness.resolve("getBatteryStatus") { bridge.getBatteryStatus(completion: $0) }
+		let battery = try XCTUnwrap(harness.lastPayload("onBatteryStatus"))
+		XCTAssertEqual(intValue(battery["percentage"]), 50, "2A19 = 0x32, as the watch showed")
+		XCTAssertTrue(isCFBoolean(battery["charging"]))
+		XCTAssertEqual(battery["charging"] as? Bool, false)
+
+		harness.resolve("getFirmwareInfo") { bridge.getFirmwareInfo(completion: $0) }
+		XCTAssertEqual(harness.lastPayload("onFirmwareInfo")?["version"] as? String, "MOY-VS02-2.0.0")
+
+		let batteryEventsBeforeSync = harness.sink.count(named: "onBatteryStatus")
+		harness.resolve("syncDataHistory", timeout: 30) { bridge.syncDataHistory(completion: $0) }
+		XCTAssertEqual(harness.sink.count(named: "onSyncStarted"), 1)
+		XCTAssertEqual(harness.sink.count(named: "onSyncFinished"), 1)
+		// A notificação de 2A19 que veio depois do sono: onBatteryStatus sem pedido.
+		harness.waitUntil("spontaneous battery") { harness.sink.count(named: "onBatteryStatus") == batteryEventsBeforeSync + 1 }
+		XCTAssertEqual(intValue(harness.lastPayload("onBatteryStatus")?["percentage"]), 50)
+
+		let replay = harness.replay.snapshot()
+		XCTAssertEqual(replay.mismatches, [])
+		XCTAssertEqual(replay.matchedTx, 12)
+		XCTAssertEqual(replay.recordedTx, 12)
+		XCTAssertEqual(replay.matchedReads, 3)
+		XCTAssertEqual(replay.recordedReads, 3)
+		XCTAssertEqual(replay.consumed, replay.total)
+		XCTAssertEqual(replay.extraTx, [])
+		XCTAssertEqual(replay.writeTypes, ["WITHOUT_RESPONSE": 12], "FEE2 only declares write without response")
+		XCTAssertEqual(
+			replay.frameKeys,
+			["5A/00", "B7/0E", "BB/16", "31", "BB/07", "5A/01", "59/00", "59/01", "59/02", "59/03", "33/01", "32"]
+		)
+
+		// Relógio sem uso: nenhum dia com passos e nenhuma noite.
+		harness.resolve("getHistoryPedometer") { bridge.getHistoryPedometer(daysBefore: 30, completion: $0) }
+		XCTAssertEqual((harness.lastPayload("onHistoryPedometer")?["historypedometer"] as? [Any])?.count, 0)
+		if case let .rejected(code, _) = harness.call("getHistorySleep", { bridge.getHistorySleep(completion: $0) }) {
+			XCTAssertEqual(code, WatchErrorCodes.shared.NO_DATA)
+		} else {
+			XCTFail("the empty 0x32 has no night: getHistorySleep must reject with NO_DATA")
+		}
+
+		// A gravação do iOS guarda as leituras (READ) e o export as devolve.
+		let path = try XCTUnwrap(harness.resolve("exportLogs") { bridge.exportLogs(completion: $0) } as? String)
+		let exported = try Recording.load(URL(fileURLWithPath: path))
+		XCTAssertEqual(exported.readCount, 3)
+		XCTAssertEqual(exported.txCount, 12)
+		XCTAssertEqual(exported.device, "P85")
+		XCTAssertEqual(exported.firmware, "MOY-VS02-2.0.0")
+
+		// forgetDevice: o F8 (fora da gravação, sem resposta), a dica de esquecer nos Ajustes e o pareamento apagado.
+		XCTAssertNil(harness.resolve("forgetDevice", timeout: 20) { bridge.forgetDevice(completion: $0) })
+		XCTAssertEqual(intValue(harness.lastPayload("onConnectStateChanged")?["state"]), Int(states.DISCONNECTED))
+		XCTAssertEqual(harness.replay.snapshot().extraTx, ["FEEA2005F8"])
+		XCTAssertTrue(harness.graph.logger.entries(limit: 2000).contains { $0.tag == "IosCoreHost/removeClassicBond" })
+		XCTAssertNil(harness.resolve("getLastPairedDevice") { bridge.getLastPairedDevice(completion: $0) })
+
+		print("IOS-REPLAY \(harness.recording.source): \(replay.total) packets, TX matched \(replay.matchedTx)/\(replay.recordedTx), " +
+			"READ matched \(replay.matchedReads)/\(replay.recordedReads), writes \(replay.writeTypes), battery \(intValue(battery["percentage"]) ?? -1)%, " +
+			"firmware MOY-VS02-2.0.0, events \(harness.sink.events.count), export \(exported.txCount) TX + \(exported.readCount) READ, " +
+			"\(Int(Date().timeIntervalSince(started) * 1000)) ms")
 	}
 
 	/// Um reload do JS: o módulo antigo morre com uma Promise pendente (rejeitada com `CANCELLED`) e o novo recebe a fila.

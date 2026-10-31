@@ -1,7 +1,9 @@
 package br.com.grupotechnos.corenext
 
+import br.com.grupotechnos.corenext.ble.ClassicBonder
 import br.com.grupotechnos.corenext.log.RingLogger
 import br.com.grupotechnos.corenext.store.PairingPrefs
+import br.com.grupotechnos.watch.bridge.ClassicBondResult
 import br.com.grupotechnos.watch.bridge.CoreLogEntry
 import br.com.grupotechnos.watch.bridge.CorePairing
 import br.com.grupotechnos.watch.protocol.log.FrameDirection
@@ -57,5 +59,12 @@ class AndroidCoreHostTest {
 		assertEquals(saved, bridge.toPrefsPairing())
 		// O PairingPrefs devolve "" quando a chave do nome não foi gravada; passa adiante como está.
 		assertEquals("", PairingPrefs.Pairing("AA:BB:CC:DD:EE:FF", "fitgps", "").toCorePairing().name)
+	}
+
+	@Test
+	fun classicBondOutcomeMapsToTheBridgeResult() {
+		// O Android só tem vínculo ou falha; UNSUPPORTED é do iOS.
+		assertEquals(ClassicBondResult.BONDED, ClassicBonder.Outcome.BONDED.toClassicBondResult())
+		assertEquals(ClassicBondResult.FAILED, ClassicBonder.Outcome.FAILED.toClassicBondResult())
 	}
 }

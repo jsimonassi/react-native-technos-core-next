@@ -13,10 +13,12 @@ O que cada método faz do lado nativo mora no `CoreBridge` do `:bridge` do Repo 
 [`arquitetura.md`](arquitetura.md#o-que-mora-onde)), e o shim iOS (`ios/CoreNext/turbomodule/`) também. O contrato descrito aqui não
 mudou com essa troca: mesmos métodos, eventos, payloads, ordem e rejeições.
 
-Escopo da PoC: famílias SMA (Mormaii fitGPS) e iDO (Mormaii Life Ultra GPS, só as funções básicas), no Android e no
-iOS (o iOS ainda sem teste no iPhone; `ios-pendente.md`). Os métodos, eventos e payloads são os mesmos para as duas
-famílias e as duas plataformas; as diferenças de comportamento estão em cada item. No iOS o `deviceId` é o UUID do
+Escopo da PoC: famílias SMA (Mormaii fitGPS), iDO (Mormaii Life Ultra GPS, só as funções básicas) e CRP (Condor
+Reebok, nome anunciado `P85`, firmware `MOY-VS02-2.0.0`; fase 1: pareamento, reconexão, esquecer, bateria, firmware,
+hora, passos e sono), no Android e no iOS (`ios-pendente.md`). Os métodos, eventos e payloads são os mesmos para as
+três famílias e as duas plataformas; as diferenças de comportamento estão em cada item. No iOS o `deviceId` é o UUID do
 periférico, não o MAC, e a falta de autorização do Bluetooth sai como `PERMISSION_DENIED` com `"Missing Bluetooth"`.
+O protocolo do Condor Reebok está no `docs/protocolo-crp.md` do Repo 1.
 
 ## Sumário
 
@@ -84,6 +86,7 @@ Resumo (detalhes de cada um abaixo):
 |---|---|---|---|---|
 | `initialize()` | `Promise<void>` | não | — | `initSMASDK` |
 | `initSMASDK()` | `Promise<void>` | não | — | `initSMASDK` |
+| `initCRPSDK()` | `Promise<void>` | não | — | `initCRPSDK` (app Condor) |
 | `scan()` | `void` | não (scan BLE) | `onScannedDevice` | `scan` |
 | `stopScan()` | `void` | não | — | não existe |
 | `pairDevice(deviceId, name)` | `Promise<void>` | sim | `onConnectStateChanged` | `pairDevice` (`void`) |
@@ -135,6 +138,14 @@ houver (`reconnectIfPaired`).
 Alias de `initialize()`, para o `Smartwatch.init` do app Mormaii (`GTE-Mormaii/src/services/Smartwatch.ts:34-64`)
 não mudar.
 
+### `initCRPSDK(): Promise<void>`
+
+Alias de `initialize()` com o nome que o app Condor usa para o Condor Reebok. Só no JS (`src/index.ts` e o mock): chama
+o mesmo `initialize` nativo, sem método próprio no spec, porque o grafo nativo é um só para todas as famílias. Novo.
+
+- Core atual: `initCRPSDK()` do Core que o app Condor fixa (`TechnosWareCore` `v4.3.57`,
+  `src/NativeModules/specs/NativeCore.ts:13` e `src/NativeModules/index.ts:267-268`), que inicia a SDK CRP.
+
 ### `scan(): void`
 
 Procura relógios por 7 s (`BleScanner.SCAN_DURATION_MS`, o mesmo tempo do Core atual, `SMAService.java:625-635`).
@@ -144,7 +155,14 @@ Cada relógio de um modelo conhecido vira um [`onScannedDevice`](#onscanneddevic
 - Falhas não lançam: saem em `onError` com `method: "scan"` e `requestId: -1`. Códigos: `PERMISSION_DENIED` (falta
   `BLUETOOTH_SCAN`, ou localização na API 30-), `BLUETOOTH_OFF`, `TRANSPORT` (o scan do Android falhou; o
   `errorCode` vai na mensagem).
-- Core atual: `scan()` (`NativeCore.ts:14`), sem filtro de serviço e sem aviso de falha.
+- O Condor Reebok é aceito por nome exato (`Condor Reebok`) ou por qualquer nome que comece com `P85` depois de `trim`
+  (`DeviceRegistry` do Repo 1), e sai com `name: "Condor Reebok"` e `bleName` igual ao anunciado. Como o filtro de scan
+  do Android só compara nome exato, o scan do Android sai sem filtro desde que esse perfil existe
+  ([`transporte-android.md`](transporte-android.md#scan-blescanner)); a identificação continua pelo nome.
+- Core atual: `scan()` (`NativeCore.ts:14`), sem filtro de serviço e sem aviso de falha. O Core do app Condor escaneia
+  sem filtro por 20 s (`CRPBleConnectHelper.java:817-881` no `v4.3.57`, pelo `startLeScan` legado da SDK) e aceita o
+  nome que começa com `P85` depois de `trim` (o `trim` em `CRPBleConnectHelper.java:873`, o `startsWith` em
+  `AvailableDevices.java:55-57`).
 
 ### `stopScan(): void`
 
@@ -153,8 +171,9 @@ Interrompe a busca antes dos 7 s. Novo.
 ### `pairDevice(deviceId: string, name: string): Promise<void>`
 
 Primeiro pareamento: conexão direta, descoberta de serviços, notificações, MTU e handshake completo (BIND e LOGIN no
-SMA; no iDO, informação básica, bind e autenticação, com a tela de confirmação no relógio). Use os campos `deviceId` e
-`name` de um `onScannedDevice` (`"fitGPS"` ou `"Life Ultra GPS"`).
+SMA; no iDO, informação básica, bind e autenticação, com a tela de confirmação no relógio; no CRP, só a leitura da
+versão do protocolo, fase `VERSION`, sem confirmação no relógio). Use os campos `deviceId` e `name` de um
+`onScannedDevice` (`"fitGPS"`, `"Life Ultra GPS"` ou `"Condor Reebok"`).
 
 - Resolve: quando a sessão chega em `READY` (o mesmo momento do `onConnectStateChanged` com `state: 2`). O BIND
   espera até 60 s pela confirmação na tela do relógio (`Quirks.bindTimeoutMs` do perfil fitGPS, `Profiles.kt`); no
@@ -170,6 +189,13 @@ SMA; no iDO, informação básica, bind e autenticação, com a tela de confirma
   configurações de Bluetooth (no iPhone, Ajustes → Bluetooth → Esquecer Este Dispositivo); o app não consegue fazer
   isso. Mostre essa instrução e deixe a pessoa tentar de novo; o nativo não tenta sozinho (ADR 23 do Repo 1).
 - O relógio pareado é salvo ao chegar em `READY` (`getLastPairedDevice` passa a devolvê-lo).
+- **Condor Reebok: vínculo Bluetooth clássico.** O relógio faz chamadas e toca música pelo Bluetooth clássico (HFP e
+  A2DP), no mesmo endereço do BLE. No `READY`, se o sistema ainda não tem esse vínculo, o nativo o pede: no Android
+  aparece o diálogo de pareamento do sistema (aceitar); se a primeira tentativa falhar, ele aparece de novo sozinho uma
+  vez. A Promise do `pairDevice` já resolveu: uma recusa ou as duas tentativas sem sucesso saem só em
+  [`onError`](#onerror) com `CLASSIC_BOND_FAILED`, `requestId` -1 e `method: "classicBond"`, e o BLE continua pronto
+  (passos, bateria e sync funcionam). O nativo não pede de novo até o próximo `pairDevice`. No iPhone o app não cria o
+  vínculo: nada aparece, só um WARN no log com a dica de parear em Ajustes > Bluetooth, e nenhum `onError`.
 - Core atual: `pairDevice(deviceId, name): void` (`NativeCore.ts:15`). Sem retorno, sem timeout e sem erro para o
   JS; o app Mormaii põe um timeout de 30 s na tela (`ConnectingDeviceManuallyFromWatch/index.tsx:47-66`).
 
@@ -185,7 +211,8 @@ try {
 
 ### `startPairingAttempt(deviceId: string, name: string): Promise<void>`
 
-Reconecta a um relógio já pareado: conexão pendente sem timeout e handshake curto (só LOGIN no SMA).
+Reconecta a um relógio já pareado: conexão pendente sem timeout e handshake curto (só LOGIN no SMA; no CRP, a mesma
+leitura de versão do pareamento).
 
 - Resolve: assim que a reconexão é pedida. A conexão de fato é anunciada por `onConnectStateChanged` e pode levar
   horas se o relógio estiver longe.
@@ -207,6 +234,7 @@ Desconecta e para de reconectar até o próximo `pairDevice`/`startPairingAttemp
 pareamento salvo e o histórico local continuam.
 
 - Resolve: quando a sessão volta a `DISCONNECTED`.
+- No Condor Reebok o vínculo Bluetooth clássico do sistema fica (as chamadas continuam pareadas).
 - **Diferença importante:** no Core atual, `disconnectCurrentDevice` (`NativeCore.ts:18`) também desfaz o vínculo no
   relógio e apaga dados: no Android `close` + `unbind` + `clearAllData` (`SMAService.java:663-671`), no iOS
   `relieveWatchBound` e apaga o `NSUserDefaults` inteiro do app (`SMAService.m:141-157`). Esse comportamento agora é
@@ -217,6 +245,15 @@ pareamento salvo e o histórico local continuam.
 Desconecta, desfaz o vínculo no relógio (UNBIND `03/05`, se conectado), apaga o pareamento salvo e o histórico local.
 No Life Ultra GPS os bytes do desvínculo não são conhecidos: nada é escrito no relógio, que continua se dizendo
 vinculado; o resto acontece igual, e o próximo `pairDevice` pede a confirmação na tela de novo.
+
+No Condor Reebok, se conectado, a sessão escreve o `F8` (remover vínculo; o relógio não responde) e desconecta; depois
+o nativo remove o vínculo Bluetooth clássico do sistema e só então apaga o pareamento salvo. No Android a remoção é
+pelo `removeBond()` por reflexão, no melhor esforço: o resultado vai só para o log, e o relógio some dos Ajustes de
+Bluetooth. Com o Bluetooth desligado, o Android não enxerga o vínculo: a remoção fica guardada e acontece quando o
+Bluetooth liga (também num processo novo), antes de o relógio reabrir chamadas e música. No iPhone o app não remove
+vínculo: o log traz a dica de esquecer o relógio em Ajustes > Bluetooth. Um pedido de vínculo ainda em andamento
+(diálogo aberto) é cancelado sem `onError`: o nativo tenta fechar o diálogo e, se o usuário aceitar mesmo assim, remove o
+vínculo assim que ele aparece.
 
 - Resolve: quando a sessão volta a `DISCONNECTED`.
 - Core atual: é o que `disconnectCurrentDevice` faz lá (ver acima). O app Mormaii chama `disconnectCurrentDevice` no
@@ -241,8 +278,9 @@ vinculado; o resto acontece igual, e o próximo `pairDevice` pede a confirmaçã
 
 ### `getDeviceInfo(): Promise<void>`
 
-Lê firmware e identificação (comando VERSION `02/0A`). Emite [`onDeviceInfo`](#ondeviceinfo) e resolve em seguida.
-Rejeita com `NOT_READY`, `TIMEOUT`, `DISCONNECTED`.
+Lê firmware e identificação (comando VERSION `02/0A` no SMA; no CRP, o `5A 01`, com a leitura da characteristic
+`2A28` de reserva). Emite [`onDeviceInfo`](#ondeviceinfo) e resolve em seguida. Rejeita com `NOT_READY`, `TIMEOUT`,
+`DISCONNECTED`.
 
 - Core atual: `getDeviceInfo(): void` (`NativeCore.ts:50`). No SMA Android manda o comando de leitura de alarme e
   não emite nada (`SMAService.java:1016-1018`); no iOS não faz nada (`SMAService.m:163-165`).
@@ -255,25 +293,28 @@ Mesma leitura de `getDeviceInfo`, mas emite [`onFirmwareInfo`](#onfirmwareinfo),
 
 ### `getBatteryStatus(): Promise<void>`
 
-Lê a bateria (comando `02/08` no SMA; `02/01`, a informação básica, no iDO). Emite [`onBatteryStatus`](#onbatterystatus) e resolve. Rejeita com `NOT_READY`,
-`TIMEOUT`, `DISCONNECTED`.
+Lê a bateria (comando `02/08` no SMA; `02/01`, a informação básica, no iDO; leitura da characteristic `2A19` no
+CRP). Emite [`onBatteryStatus`](#onbatterystatus) e resolve. Rejeita com `NOT_READY`, `TIMEOUT`, `DISCONNECTED`. O
+Condor Reebok também avisa a bateria sozinho, cerca de uma vez por minuto: sai um `onBatteryStatus` sem pedido.
 
 - Core atual: `getBatteryStatus(): void` (`NativeCore.ts:64`). No iOS o `percentage` sai com lixo, porque o
   `NSDictionary` é passado onde se espera `NSInteger` (`SMAService.m:1237-1243`).
 
 ### `setTime(): Promise<void>`
 
-Acerta o relógio com a hora local de parede do telefone (comando `02/01` no SMA; `03/01`, com o fuso, no iDO). A
-sessão também faz isso sozinha depois de cada conexão (passados `Quirks.postLoginDelayMs`, 3 s no fitGPS, 1 s no Life
-Ultra GPS).
+Acerta o relógio com a hora local de parede do telefone (comando `02/01` no SMA; `03/01`, com o fuso, no iDO; `31`
+e o fuso `BB 07 00` no CRP). A sessão também faz isso sozinha depois de cada conexão (passados
+`Quirks.postLoginDelayMs`, 3 s no fitGPS, 1 s no Life Ultra GPS, 250 ms no Condor Reebok).
 
-- Resolve: no ACK do relógio. Rejeita com `NOT_READY`, `TIMEOUT`, `DISCONNECTED`.
+- Resolve: no ACK do relógio (no CRP, que não responde, depois das duas escritas). Rejeita com `NOT_READY`,
+  `TIMEOUT`, `DISCONNECTED`.
 - Core atual: não existe no JS; o Android acerta a hora 3 s depois do login (`SMAService.java:270-295`).
 
 ### `refreshSteps(): Promise<void>`
 
-Lê os passos recentes do relógio (`05/41` no SMA; no iDO, `02/A0`, os totais do dia ao vivo), grava no histórico
-local e emite [`onPedometer`](#onpedometer) com o total de hoje. Resolve depois do evento.
+Lê os passos recentes do relógio (`05/41` no SMA; no iDO, `02/A0`, os totais do dia ao vivo; no CRP, os totais do
+dia em `FEE1` e os passos por meia hora de hoje e de ontem, `59 00` a `59 03`), grava no histórico local e emite
+[`onPedometer`](#onpedometer) com o total de hoje. Resolve depois do evento.
 
 - Core atual: não existe; o Android faz polling de 10 s com `readData([SPORT, ...])` (`SMAService.java:547-603`) e o
   iOS a cada 1 s (`SMAService.h:23`).
@@ -285,6 +326,9 @@ Ultra GPS não há histórico na PoC: o sync lê o mesmo total do dia do `refres
 de um segundo; um dia em que o app não leu o relógio fica sem passos. Enquanto
 roda, a sessão fica em `SYNCING` (o `state` continua 2) e um serviço em primeiro plano mantém o processo vivo.
 
+- Condor Reebok: passos como no `refreshSteps` (meias horas e totais do dia; o relógio não guarda distância nem
+  calorias por meia hora) e o sono de hoje (`32`; e o de 1 e 2 dias atrás se o relógio responder ao comando legado
+  `33`, sondado uma vez por conexão). Um sono que não responde termina em 4 s sem travar o resto.
 - Eventos: `onSyncStarted`, `onSyncProgress` (por etapa: 0 no início e `100 * (i + 1) / n` ao fim de cada tipo, então 0, 50 e 100 para passos e sono; `SyncEngine.kt` do Repo 1) e `onSyncFinished`.
 - Resolve: depois de `onSyncFinished`.
 - Rejeita: com o erro que interrompeu o sync (`NOT_READY`, `TIMEOUT`, `DISCONNECTED`, `CANCELLED`...). Falta de
@@ -314,7 +358,9 @@ novo, sem os dias já confirmados por `deletedSavedData`. Não fala com o relóg
 
 Emite [`onHistorySleep`](#onhistorysleep) com as noites gravadas localmente, sem os dias confirmados. **Exploratório**:
 o sono do fitGPS nunca foi validado em produção. O Life Ultra GPS não tem sono na PoC (vem do protocolo V3): sempre
-`NO_DATA`.
+`NO_DATA`. No Condor Reebok, o `date` é o dia em que se acorda, com a virada às 20h como na SDK (um sono lido depois
+das 20h vale para o dia seguinte), e `totalSleepMinutes` é leve + profundo + REM, sem o acordado (fase 1 ainda sem
+noite real no relógio de teste).
 
 - Resolve: depois de emitir.
 - Rejeita com `NO_DATA` **e também emite `onError`** (`code: "NO_DATA"`, `method: "getHistorySleep"`) quando não há
@@ -355,9 +401,10 @@ TechnosCore.deletedSavedData([
 Grava dois arquivos em `getExternalFilesDir(null)/corenext/` (ou `filesDir/corenext/` se não houver armazenamento
 externo) e devolve o caminho do primeiro:
 
-- `frames-<yyyyMMdd-HHmmss>.jsonl`: gravação de todos os pacotes GATT TX/RX desde o último `clearLogs`, no formato de
-  fixture do `technos-watch-protocol` (cabeçalho + uma linha por pacote, `FrameJsonl.kt`). Vira
-  `fixtures/real/fitgps/<fw>/*.jsonl` no Repo 1.
+- `frames-<yyyyMMdd-HHmmss>.jsonl`: gravação de todos os pacotes GATT desde o último `clearLogs` (`TX`, `RX` e
+  `READ`, o valor de cada leitura GATT), no formato de fixture do `technos-watch-protocol` (cabeçalho + uma linha por
+  pacote, `FrameJsonl.kt`). Vira `fixtures/real/<perfil>/<fw>/*.jsonl` no Repo 1 (`fitgps`, `lifeultragps` ou
+  `condorreebok`).
 - `logs-<mesmo carimbo>.jsonl`: o anel do log, uma [`LogEvent`](#onlog) por linha.
 
 Exemplo de retorno: `"/storage/emulated/0/Android/data/br.com.grupotechnos.corenext.example/files/corenext/frames-20261028-143000.jsonl"`.
@@ -387,8 +434,8 @@ sub.remove();`. Tipos em `src/types/events.ts`.
 | `onConnectStateChanged` | `ConnectStateChangedEvent` | toda mudança de estado | igual, mais `sessionState` e `phase` |
 | `onDeviceInfo` | `DeviceInfoEvent` | `getDeviceInfo()` | não existe para SMA |
 | `onFirmwareInfo` | `FirmwareInfoEvent` | `getFirmwareInfo()` | igual (`deviceId` agora preenchido) |
-| `onBatteryStatus` | `BatteryStatusEvent` | `getBatteryStatus()` | igual |
-| `onPedometer` | `PedometerEvent` | `refreshSteps()`, aviso do relógio | mesmo `pedometer` no fitGPS 0.2.1 (o acumulado do dia), com calorias e distância no mesmo evento |
+| `onBatteryStatus` | `BatteryStatusEvent` | `getBatteryStatus()`; aviso do Condor Reebok | igual |
+| `onPedometer` | `PedometerEvent` | `refreshSteps()`, aviso do relógio, passos ao vivo do Condor Reebok | mesmo `pedometer` no fitGPS 0.2.1 (o acumulado do dia), com calorias e distância no mesmo evento |
 | `onHistoryPedometer` | `HistoryPedometerEvent` | `getHistoryPedometer()` | formato igual ao Core iOS; totais do fitGPS menores (o Core atual soma as horas, [`pendencias.md`](pendencias.md), seção 5) |
 | `onHistorySleep` | `HistorySleepEvent` | `getHistorySleep()` | nunca emitido para SMA |
 | `onSyncStarted` | `{}` | início do sync | simulado |
@@ -412,9 +459,11 @@ interface ScannedDeviceEvent {
 ```json
 { "name": "fitGPS", "deviceId": "D4:3B:04:11:22:33", "rssi": -62, "bleName": "Mormaii_fitGPS", "profileId": "fitgps" }
 { "name": "Life Ultra GPS", "deviceId": "C1:02:03:04:05:06", "rssi": -58, "bleName": "Life Ultra GPS", "profileId": "lifeultragps" }
+{ "name": "Condor Reebok", "deviceId": "AA:BB:CC:DD:EE:FF", "rssi": -60, "bleName": "P85", "profileId": "condorreebok" }
 ```
 
-Os nomes que o scan aceita saem dos perfis do Repo 1 (`Mormaii_fitGPS`; `Life Ultra GPS` e `Smart Watch 6010`).
+Os nomes que o scan aceita saem dos perfis do Repo 1 (`Mormaii_fitGPS`; `Life Ultra GPS` e `Smart Watch 6010`;
+`Condor Reebok` e qualquer nome que comece com `P85`).
 
 Core atual: `{ name, deviceId, rssi }` com `name = "fitGPS"` (`SMAService.java:505-526`). O app Mormaii filtra por
 `ALLOWED_DEVICE_NAMES.includes(name)` (`GTE-Mormaii/src/constants/index.ts:138-148`), que continua valendo.
@@ -425,12 +474,13 @@ Core atual: `{ name, deviceId, rssi }` com `name = "fitGPS"` (`SMAService.java:5
 interface ConnectStateChangedEvent {
 	state: number; // deviceConnectStates
 	sessionState: string; // estado detalhado da sessão (novo)
-	phase: string | null; // "BIND" ou "LOGIN" durante o handshake (novo)
+	phase: string | null; // "BIND" ou "LOGIN" durante o handshake; "VERSION" no Condor Reebok (novo)
 }
 ```
 
 ```json
 { "state": 1, "sessionState": "HANDSHAKING", "phase": "BIND" }
+{ "state": 1, "sessionState": "HANDSHAKING", "phase": "VERSION" }
 ```
 
 Tradução do estado da sessão para `state` (`StateMapper` do `:bridge`, Repo 1):
@@ -453,12 +503,13 @@ interface DeviceInfoEvent {
 	profileId: string;
 	bleName: string;
 	firmware: string; // "x.y.z"
-	bleVersion: string | null; // null no SMA e no iDO
+	bleVersion: string | null; // null no SMA e no iDO; no CRP, o texto lido em 2A29 ("MOYOUNG-V2")
 }
 ```
 
 ```json
 { "deviceId": "D4:3B:04:11:22:33", "profileId": "fitgps", "bleName": "Mormaii_fitGPS", "firmware": "1.0.7", "bleVersion": null }
+{ "deviceId": "AA:BB:CC:DD:EE:FF", "profileId": "condorreebok", "bleName": "P85", "firmware": "MOY-VS02-2.0.0", "bleVersion": "MOYOUNG-V2" }
 ```
 
 Novo. Quando o relógio manda a versão sem pedido (`requestId -1`), saem `onDeviceInfo` e `onFirmwareInfo`.
@@ -468,8 +519,8 @@ Novo. Quando o relógio manda a versão sem pedido (`requestId -1`), saem `onDev
 ```ts
 interface FirmwareInfoEvent {
 	version: string;
-	braceletType: number; // 0 no fitGPS e no Life Ultra GPS
-	platformCode: number; // 0 no fitGPS e no Life Ultra GPS
+	braceletType: number; // 0 no fitGPS, no Life Ultra GPS e no Condor Reebok
+	platformCode: number; // 0 no fitGPS, no Life Ultra GPS e no Condor Reebok
 	deviceId: string;
 }
 ```
@@ -481,21 +532,28 @@ interface FirmwareInfoEvent {
 Core atual: `TechnosFirmwareInfo { version, braceletType: 0, platformCode: 0, deviceId?: number }`
 (`SMAService.java:241-244`, `EventHandler.kt:275-287`). Diferença: `deviceId` é sempre preenchido e é string (MAC). No
 Life Ultra GPS o `version` sai `"1.1.1"` (os três números do `02/EB`); o Core atual formata `"1.01.01"` e manda o
-`deviceId` da iDO (8294) como número (`SDKCallbacks.java:1022-1038`).
+`deviceId` da iDO (8294) como número (`SDKCallbacks.java:1022-1038`). No Condor Reebok o `version` é o texto do
+relógio, `"MOY-VS02-2.0.0"`.
 
 ### `onBatteryStatus`
 
 ```ts
 interface BatteryStatusEvent {
 	percentage: number; // 0 a 100
-	charging: boolean; // sempre false (o SMA não informa; o estado de carga do iDO não é repassado na PoC)
+	charging: boolean; // só o Condor Reebok informa; false no SMA e no iDO (o estado de carga do iDO não é repassado na PoC)
 	battery: string; // legado, "85%"
 }
 ```
 
 ```json
 { "percentage": 85, "charging": false, "battery": "85%" }
+{ "percentage": 55, "charging": true, "battery": "55%" }
 ```
+
+No Condor Reebok, uma leitura de `2A19` acima de 100 quer dizer carregando, com o nível = valor - 100 (a regra é do Core
+do app Condor, `CRPService.java:1814-1822` no `v4.3.57`, e ainda falta confirmar no carregador). O relógio também
+notifica a bateria sozinho, cerca de uma vez por minuto (na captura do app Condor, `0x32` = 50 % e depois `0x31`):
+cada aviso vira um `onBatteryStatus` sem pedido, com o mesmo formato.
 
 Core atual: mesmo formato (`EventHandler.kt:290-298`).
 
@@ -519,6 +577,13 @@ do fitGPS 0.2.1 o relógio não mandou nenhum `02/70`, nem em cerca de 384 s e 2
 `technos-watch-protocol/fixtures/real/fitgps/0.2.1/pair-commands-bt-reconnect-sync.jsonl`, igual byte a byte ao
 export `frames-20261029-083254.jsonl`): para passos ao vivo, chame `refreshSteps()` periodicamente, como o Core atual
 faz a cada 10 s (`SMAService.java:547-603`).
+
+No Condor Reebok, `calorie` e `distance` são os totais do dia que o relógio mede (`FEE1`), não estimativas. O relógio
+notifica `FEE1` sozinho quando os passos mudam (cerca de uma vez por segundo andando): cada aviso atualiza a meia hora
+atual e os totais do dia, e sai um `onPedometer` sem pedido, no máximo um a cada 2 s. Se o aviso chega antes de
+qualquer `refreshSteps` ou sync na conexão, o nativo pede uma leitura dos passos uma vez só e a faz 2 s depois do
+aviso (andando, os avisos seguintes não adiam a leitura), emite o `onPedometer` dela e, a partir daí, os dos avisos.
+Uma leitura que falha só é tentada de novo 30 s depois.
 
 Core atual: `{ pedometer }`, com o `step` do registro mais recente lido pelo polling (`SMAService.java:387-405`). No
 fitGPS 0.2.1 esse valor é o acumulado do dia (ADR 1 do Repo 1), o mesmo número que este evento traz e que a tela do
@@ -634,9 +699,16 @@ interface ErrorEvent {
 { "requestId": 12, "code": "TIMEOUT", "message": "No response to 05/41", "method": "syncDataHistory" }
 ```
 
-Sai para toda Promise rejeitada e para falhas sem Promise (`scan`, reconexão automática, aviso do relógio). Uma
-reconexão que o nativo começou sozinho e que para por `PAIRING_REMOVED` sai com `method: null` e `requestId` -1 (a
-sessão reconectava depois de uma queda) ou interno (o `CoreBridge` pediu a reconexão), conforme quem a começou. Novo.
+Sai para toda Promise rejeitada e para falhas sem Promise (`scan`, reconexão automática, aviso do relógio, vínculo
+clássico). Uma reconexão que o nativo começou sozinho e que para por `PAIRING_REMOVED` sai com `method: null` e
+`requestId` -1 (a sessão reconectava depois de uma queda) ou interno (o `CoreBridge` pediu a reconexão), conforme quem
+a começou. O vínculo Bluetooth clássico do Condor Reebok que não saiu vem com `method: "classicBond"` e `requestId` -1:
+
+```json
+{ "requestId": -1, "code": "CLASSIC_BOND_FAILED", "message": "Classic Bluetooth bond with AA:BB:CC:DD:EE:FF was not created: bond state went from BONDING to NONE (attempt 2 of 2)", "method": "classicBond" }
+```
+
+Novo.
 
 ### `onLog`
 
@@ -646,7 +718,7 @@ interface LogEvent {
 	level: "DEBUG" | "INFO" | "WARN" | "ERROR";
 	tag: string; // "Classe/metodo", ou "Frame/<uuid curto>" para pacotes GATT
 	message: string;
-	dir: "TX" | "RX" | null; // só para pacotes GATT
+	dir: "TX" | "RX" | "READ" | null; // só para pacotes GATT; "READ" é o valor devolvido por uma leitura GATT
 	hex: string | null; // bytes do pacote em hex maiúsculo, só para pacotes GATT
 }
 ```
@@ -667,7 +739,9 @@ pode mudar. Cada pacote é um fragmento como foi escrito ou notificado, não o f
 de RX chega sozinho, e a linha `Frame/` de RX não traz `cmd/key` nem CRC. O resumo de cada frame remontado sai numa
 entrada `DEBUG` à parte, com tag `SmaDriver/frame`, `dir`/`hex` nulos e `message` `TX seq=<n> <rótulo> len=<n>` ou
 `RX seq=<n> <rótulo> len=<n> crc=ok` (só frames de dados; ACK e NACK ficam nas linhas `Frame/`). `onLog` não passa
-pela fila de eventos pendentes: o que acontecer antes de o JS se inscrever se recupera com `getLogs`. Novo.
+pela fila de eventos pendentes: o que acontecer antes de o JS se inscrever se recupera com `getLogs`. No Condor
+Reebok, as leituras GATT (versão em `2a29`, firmware em `2a28`, bateria em `2a19`, passos do dia em `fee1`) saem com
+`dir: "READ"` e tag `Frame/<uuid curto>`; o resumo de cada frame vem do `CrpDriver` do Repo 1. Novo.
 
 ## Constantes
 
@@ -705,9 +779,10 @@ têm efeito.
 | `BLUETOOTH_OFF` | host | Bluetooth do telefone desligado |
 | `INVALID_ARGUMENT` | host | `deviceId` não é MAC (Android) nem UUID (iOS) |
 | `IO_ERROR` | host | falha de arquivo (histórico local, exportação) |
+| `CLASSIC_BOND_FAILED` | host | o vínculo Bluetooth clássico do Condor Reebok (chamadas e música) não saiu: duas tentativas sem sucesso (diálogo do sistema recusado ou sem resposta em 45 s cada); um pedido cancelado pelo `forgetDevice` não sai aqui. Só em `onError`, com `requestId` -1 e `method: "classicBond"`; nenhuma Promise rejeita e o BLE continua pronto. Não é pedido de novo até o próximo `pairDevice`. Nunca sai no iPhone |
 
-Os da sessão são os de `WatchErrorCodes.kt` (`:protocol`, Repo 1); os do host, os de `HostErrorCodes.kt` (`:bridge`,
-Repo 1).
+Os da sessão (treze) são os de `WatchErrorCodes.kt` (`:protocol`, Repo 1); os do host (cinco), os de
+`HostErrorCodes.kt` (`:bridge`, Repo 1).
 
 ### `logLevels`
 
@@ -798,7 +873,7 @@ it("mostra a bateria", () => {
 });
 ```
 
-- Padrões: comandos `Promise<void>` resolvem; `isConnected` → `false`; `getLastPairedDevice` → `null`;
+- Padrões: comandos `Promise<void>` resolvem (inclusive os aliases `initSMASDK` e `initCRPSDK`); `isConnected` → `false`; `getLastPairedDevice` → `null`;
   `getLogs` → `[]`; `exportLogs` → `MOCK_EXPORT_PATH`.
 - `mockEmit(nome, payload)` chama os handlers inscritos (tipado pelo nome do evento).
 - `mockListenerCount(nome)` ajuda a verificar que um componente removeu as inscrições.

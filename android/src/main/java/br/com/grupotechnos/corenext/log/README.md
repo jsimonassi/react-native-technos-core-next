@@ -6,7 +6,7 @@ Log de diagnóstico do Core e gravação do tráfego GATT para virar fixture do 
 
 | Tipo | Papel |
 |---|---|
-| `RingLogger` | `WatchLogger` do Repo 1. Anel de 2000 entradas, Logcat (tag `CoreNext`), evento `onLog`. Respeita `setLogLevel` (0 DEBUG, 1 INFO, 2 WARN, 3 ERROR). Pacotes GATT viram entradas `DEBUG` com `dir` (`TX`/`RX`) e `hex`. |
+| `RingLogger` | `WatchLogger` do Repo 1. Anel de 2000 entradas, Logcat (tag `CoreNext`), evento `onLog`. Respeita `setLogLevel` (0 DEBUG, 1 INFO, 2 WARN, 3 ERROR). Pacotes GATT viram entradas `DEBUG` com `dir` (`TX`, `RX` ou `READ`, o valor devolvido por uma leitura GATT, como a versão, o firmware, a bateria e os passos do Condor Reebok) e `hex`. |
 | `FrameRecorder` | Pacotes crus em memória no formato `FrameJsonl` do Repo 1; vira arquivo em `exportLogs()`. Para (com `WARN`) ao chegar em 50 mil pacotes, porque fixture sem o começo não serve para replay. |
 
 ## Arquivos exportados
@@ -18,7 +18,8 @@ não estiver disponível) e devolve o caminho do primeiro:
   uma linha por pacote (`dir`, `atMs`, `characteristic`, `hex`). O `recordedAt` é o instante do primeiro pacote
   (atMs 0) em `yyyy-MM-dd'T'HH:mm:ss.SSSxxx`, com milissegundos e offset numérico mesmo em UTC
   (`2026-10-29T08:14:10.933-03:00`, `2026-10-28T17:30:00.000+00:00`). É o arquivo que vai para
-  `technos-watch-protocol/fixtures/real/fitgps/<fw>/<cenário>.jsonl`: só o export mais recente de cada cenário,
+  `technos-watch-protocol/fixtures/real/<perfil>/<fw>/<cenário>.jsonl` (`fitgps`, `lifeultragps` ou `condorreebok`;
+  as leituras saem com `"dir":"READ"`, que o replay responde): só o export mais recente de cada cenário,
   porque cada export traz tudo desde o último `Clear` e o anterior é prefixo dele. O cabeçalho é um só: `device` e
   `firmware` do último relógio que chegou ao handshake (ADR 24 do Repo 1) e o `mtu` do transporte na hora do export; trocar de
   relógio sem `Export` e `Clear` deixa os pacotes do primeiro sob o cabeçalho do segundo.
@@ -39,4 +40,4 @@ limpa, exporta e preenche o cabeçalho da gravação.
 
 ## Testes
 
-`RingLoggerTest` (anel, filtro, frames, cabeçalho do fixture, limite, exportação).
+`RingLoggerTest` (anel, filtro, frames, cabeçalho do fixture, limite, exportação, leitura gravada como `READ`).

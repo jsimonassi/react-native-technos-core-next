@@ -9,8 +9,8 @@ cada método JS faz. Desenho e motivos em [`../../docs/ios-pendente.md`](../../d
 | Arquivo | Papel | Par no Android |
 |---|---|---|
 | `CoreNext.swift` | API pública: `CoreNext.bootstrap(launchOptions:)` (o `AppDelegate` chama), `CoreNext.sharedBridge()` e `CoreNext.log(tag:message:)` (o shim chama) e a `PromiseCompletion` (o par resolve/reject do RN como `CoreCompletion`, com o valor pelo `FoundationConverter`). No Objective-C: `TCNCoreNext` e `TCNPromiseCompletion`. | `NativeCoreNextPackage`, `bridge/PromiseCompletion` |
-| `CoreGraph.swift` | Um por processo: logger, gravador, store, transporte, `WatchSession`, `IosCoreHost` e `CoreBridge`; repassa os ganchos do transporte (Bluetooth, scan) ao controlador. | `CoreGraph` |
-| `IosCoreHost.swift` | O `CoreHost`: autorização e estado do Bluetooth, endereço = UUID, scan, tarefa de segundo plano no sync, pareamento, cabeçalho da gravação, log e `exportLogs`. Só delega. | `AndroidCoreHost` |
+| `CoreGraph.swift` | Um por processo: logger, gravador, store, transporte, `WatchSession`, `IosCoreHost` e `CoreBridge`; repassa os ganchos do transporte (Bluetooth, scan) e o resultado do vínculo clássico ao controlador, e responde ao transporte as opções do `connect` pelo perfil da sessão (`transportConnectOptions`: transport bridging com `Quirks.iosTransportBridging`). | `CoreGraph` |
+| `IosCoreHost.swift` | O `CoreHost`: autorização e estado do Bluetooth, endereço = UUID, scan, tarefa de segundo plano no sync, pareamento, cabeçalho da gravação, log e `exportLogs`. Só delega. Vínculo Bluetooth clássico (Condor Reebok): `hasClassicBond` sempre `false`, `requestClassicBond` responde `.unsupported` com a dica de parear em Ajustes > Bluetooth (assíncrono), `removeClassicBond` só loga a dica de esquecer lá. | `AndroidCoreHost` (`ClassicBonder` no `ble/`) |
 | `BackgroundWork.swift` | `beginBackgroundTask`/`endBackgroundTask` durante o sync (`UIKitBackgroundWork`) e a versão vazia dos testes. | `ble/SyncForegroundService` |
 
 ## Pastas

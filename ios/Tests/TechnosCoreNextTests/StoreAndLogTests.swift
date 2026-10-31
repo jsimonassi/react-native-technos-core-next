@@ -168,6 +168,34 @@ final class StoreAndLogTests: XCTestCase {
 		XCTAssertTrue(text.contains(#""atMs":110"#))
 	}
 
+	/// Uma leitura GATT (`FrameDirection.read`; versão, firmware, bateria e passos do CRP) fica com a direção no anel, no
+	/// `getLogs`, no export do log e na gravação, que o replay responde.
+	func testReadFrameKeepsDirection() throws {
+		let recorder = FrameRecorder(now: { 1_793_472_193_744 }, timeZone: { TimeZone(identifier: "America/Sao_Paulo")! })
+		let logger = RingLogger(recorder: recorder, now: { 1_793_472_193_744 })
+		recorder.deviceName = "P85"
+		let value = ByteBridgeKt.toByteArray(Data("MOYOUNG-V2".utf8))
+		logger.frame(direction: FrameDirection.read, characteristic: "00002a29-0000-1000-8000-00805f9b34fb", value: value, summary: "")
+		let entry = try XCTUnwrap(logger.entries(limit: 1).first)
+		XCTAssertEqual(entry.dir, FrameDirection.read)
+		XCTAssertEqual(entry.coreLogEntry.dir, FrameDirection.read)
+		XCTAssertEqual(entry.tag, "Frame/2a29")
+		XCTAssertEqual(entry.hex, "4D4F594F554E472D5632")
+
+		let frames = directory.appendingPathComponent("frames.jsonl")
+		try recorder.write(to: frames)
+		let text = try String(contentsOf: frames, encoding: .utf8)
+		XCTAssertTrue(text.contains(#""dir":"READ""#), text)
+		let recording = try Recording.load(frames)
+		XCTAssertEqual(recording.packets.map(\.dir), [.read])
+		XCTAssertEqual(recording.readCount, 1)
+		XCTAssertEqual(recording.packets.first?.value, Array("MOYOUNG-V2".utf8))
+
+		let logs = directory.appendingPathComponent("logs.jsonl")
+		try logger.write(to: logs)
+		XCTAssertTrue(try String(contentsOf: logs, encoding: .utf8).contains(#""dir":"READ""#))
+	}
+
 	func testHostAnswersWithTheIosRules() {
 		let recorder = FrameRecorder()
 		let logger = RingLogger(recorder: recorder)
@@ -188,6 +216,44 @@ final class StoreAndLogTests: XCTestCase {
 		XCTAssertTrue(host.isBluetoothEnabled())
 		host.setLogLevel(level: LogLevel.error)
 		XCTAssertEqual(logger.minLevel, LogLevel.error)
+	}
+
+	/// O iOS não cria nem remove vínculo clássico: `hasClassicBond` é sempre `false`, e o pedido volta `.unsupported` com
+	/// a dica, de forma assíncrona e uma vez por pedido.
+	func testClassicBondIsUnsupportedWithTheSettingsHint() {
+		let recorder = FrameRecorder()
+		let logger = RingLogger(recorder: recorder)
+		let suite = "br.com.grupotechnos.corenext.tests.\(UUID().uuidString)"
+		let defaults = UserDefaults(suiteName: suite)!
+		defer { defaults.removePersistentDomain(forName: suite) }
+		let host = IosCoreHost(logger: logger, recorder: recorder, pairing: PairingStore(defaults: defaults), transport: StubTransport(), backgroundWork: NoBackgroundWork(), exportDirectory: directory)
+		let address = "6F1C2B8E-3D4A-4C5B-9E7F-0A1B2C3D4E5F"
+		XCTAssertFalse(host.hasClassicBond(address: address))
+		let answered = expectation(description: "unsupported")
+		var results: [(String, ClassicBondResult, String)] = []
+		let lock = NSLock()
+		let gate = DispatchSemaphore(value: 0)
+		host.onClassicBondResult = { address, result, message in
+			gate.wait()
+			lock.lock()
+			results.append((address, result, message))
+			lock.unlock()
+			answered.fulfill()
+		}
+		host.requestClassicBond(address: address)
+		lock.lock()
+		XCTAssertTrue(results.isEmpty, "the answer is asynchronous")
+		lock.unlock()
+		gate.signal()
+		wait(for: [answered], timeout: 2)
+		XCTAssertEqual(results.count, 1)
+		XCTAssertEqual(results.first?.0, address)
+		XCTAssertEqual(results.first?.1, ClassicBondResult.unsupported)
+		XCTAssertEqual(results.first?.2, IosCoreHost.classicBondHint)
+		XCTAssertTrue(logger.entries(limit: 5).contains { $0.level == LogLevel.warn && $0.message.contains("Settings > Bluetooth") })
+		host.removeClassicBond(address: address)
+		XCTAssertEqual(logger.entries(limit: 1).first?.tag, "IosCoreHost/removeClassicBond")
+		XCTAssertEqual(results.count, 1, "removal never answers")
 	}
 }
 

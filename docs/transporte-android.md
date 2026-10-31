@@ -1,11 +1,16 @@
 # Transporte Android
 
 Como o `ble/AndroidGattTransport` implementa o `Transport` do Repo 1 e o que fica em volta (scan, Bluetooth on/off,
-serviço em primeiro plano). A sessão decide *o que* fazer; este documento descreve *como* o Android executa.
+serviço em primeiro plano, vínculo Bluetooth clássico). A sessão decide *o que* fazer; este documento descreve *como* o
+Android executa.
 
-Fontes citadas: SDK SMA Android decompilada (`com/bestmafen/...`, só leitura), Core atual
-(`TechnosWareCore/android/...`) e a gravação com o fitGPS 0.2.1 de 2026-10-29
-([O que a gravação do fitGPS mostrou](#o-que-a-gravação-do-fitgps-mostrou)).
+Fontes citadas: SDK SMA Android decompilada (`com/bestmafen/...`, só leitura), SDK CRP Android decompilada
+(`crpblelib` 2.0.3; `sdk:` = `com/crrepa/...` e `com/realsil/...`, como no `docs/protocolo-crp.md` do Repo 1), Core
+atual (`TechnosWareCore/android/...`; para o Condor, a tag `v4.3.57`, `core@v4.3.57:`), a gravação com o fitGPS 0.2.1
+de 2026-10-29 ([O que a gravação do fitGPS mostrou](#o-que-a-gravação-do-fitgps-mostrou)) e a captura HCI do app Condor
+de produção pareando o P85 num Android, em 2026-10-31 (as fixtures de referência do Repo 1,
+`fixtures/reference/condorreebok/MOY-VS02-2.0.0/`, citadas por arquivo e `atMs`; o que é Bluetooth clássico, que as
+fixtures não guardam, é citado pelo horário local da captura, "HCI hh:mm:ss").
 
 ## Thread única
 
@@ -127,6 +132,15 @@ serviços que acelera a reconexão.
   tiver `INDICATE`, escreve `02 00`. Sem descritor `0x2902` → `GattStatus.NOT_FOUND`. A sessão chama uma vez por
   characteristic, uma de cada vez: no iDO, `0af7` e depois `0af2` (`GattCandidate.extraNotify` do Repo 1, a ordem da SDK
   iDO); as notificações das duas vão para a sessão como qualquer outra.
+- **CCCD em outros serviços (Condor Reebok).** O candidato do P85 é o `feea` (escrita `fee2`, frames em `fee3`), e o
+  perfil pede também notificações fora do canal de frames, em qualquer serviço (`GattCandidate.sideNotify`): `2a37`
+  (serviço `180d`, frequência cardíaca, só log na fase 1), `fee1` (passos do dia) e `2a19` (serviço `180f`, bateria). A
+  ordem é `fee3`, `2a37`, `fee1`, `2a19`: as três primeiras são as do app Condor (cabeçalho `cccdWrites` de
+  `condor-app-pair-sync.jsonl`), e a `2a19` entra porque o Android só entrega ao app a notificação de uma characteristic
+  registrada no `setCharacteristicNotification` (o aviso de bateria espontâneo, uma vez por minuto, chega ao app Condor
+  sem ele escrever o CCCD de `2a19`, mas não chegaria aqui). É o `subscribeDeviceBattery` da SDK (`sdk:h/a.java:423-429`).
+  Nada muda no transporte: o `findCharacteristic(service, ch)` já acha a characteristic em qualquer serviço. Uma
+  falha nessas três não derruba o pareamento (a sessão loga WARN e segue).
 - `requestMtu(mtu)` → `onMtuChanged(requestId, mtuEfetivo, status)`. No fitGPS a sessão pede 247 (`Quirks.requestMtu`);
   a SDK pede 512 (`SmaManager.java:204`). No Life Ultra GPS a sessão não chama `requestMtu` (`requestMtu = 23`; a SDK
   iDO também não pede), e todo frame tem no máximo 20 bytes; o Android 14+ pode negociar um MTU maior sozinho, o que só
@@ -135,6 +149,11 @@ serviços que acelera a reconexão.
   negociação bem-sucedida para 23, não o caminho de falha da ADR 5 do Repo 1 (log `logs-20261029-083254.jsonl`,
   linhas 17 e 122, ts 1793272450905 e 1793273190489; cabeçalho `"mtu":23` da fixture
   `technos-watch-protocol/fixtures/real/fitgps/0.2.1/pair-commands-bt-reconnect-sync.jsonl`). Todo pacote da gravação tem no máximo 20 bytes.
+- **MTU iniciado pelo relógio (Condor Reebok).** O P85 abre a troca de MTU com 517 logo depois da conexão, e o Android
+  responde 517 (cabeçalho de `condor-app-pair-sync.jsonl`: `"mtu":517`, `"mtuInitiator":"peripheral"`). O callback
+  chega sem operação nossa pendente e só atualiza o `currentMtu` (o caminho "mudança sem pedido" acima). O
+  `requestMtu(512)` que a sessão faz depois das CCCDs não gera tráfego no ar: o Android responde na hora com o MTU já
+  trocado. O driver CRP usa esse MTU para o tamanho de bloco (244 bytes com 517).
 
 ## Escrita
 
@@ -152,13 +171,22 @@ serviços que acelera a reconexão.
   ocupado em toda escrita e só o libera nesse callback, e a SDK iDO dá o ritmo das escritas sem resposta exatamente por
   ele. Se um aparelho não o entregar, o timeout de 4 s da fila termina a escrita com `TIMEOUT` e a sessão vê `TRANSPORT`.
 - O transporte copia o array recebido antes de enfileirar: a sessão pode reutilizar o buffer.
+- **Condor Reebok: escrita sem resposta no `fee2`.** A characteristic declara só write-without-response (cabeçalho
+  `gatt` de `condor-app-pair-sync.jsonl`) e o app Condor escreve com ATT Write Command (HCI), então o driver CRP pede
+  sempre `WITHOUT_RESPONSE`. O ritmo é do driver, não do transporte: 20 ms entre os pedaços de um frame
+  (`sdk:h/d.java:121-133`) e a espera por comando da fila da SDK depois de cada frame, 200 ms na maioria
+  (`sdk:m/f.java:94-130`; no app Condor, cerca de 228 ms entre frames de um mesmo lote).
 
 ## Notificações
 
 `onCharacteristicChanged` → `onNotification(uuid, value.copyOf())`, uma por notificação, na ordem de chegada. A cópia
 importa abaixo da API 33, onde o array é o buffer interno da characteristic e é reescrito na notificação seguinte.
 Na API 33+ só a sobrecarga nova (com `value`) é tratada; a antiga retorna cedo para não entregar duas vezes.
-A remontagem de frames (L1 de 8 bytes em notificação própria, `SmaManager.java:506-528`) é da sessão. No fitGPS 0.2.1
+A remontagem de frames (L1 de 8 bytes em notificação própria, `SmaManager.java:506-528`) é da sessão. No Condor Reebok
+as notificações vêm de quatro characteristics (`fee3`, `fee1`, `2a19`, `2a37`), cada uma com o UUID dela; a sessão
+manda as de `fee3` para a remontagem de frames do driver e as outras para o canal lateral (`sideNotify`) com a origem.
+A `2a19` chega sozinha cerca de uma vez por minuto (em `condor-app-pair-sync.jsonl`, `0x32` em atMs 48921) e a `fee1` a
+cada passo andando (em `condor-app-reconnect-sync-walk.jsonl`, de atMs 106148 a 136148). No fitGPS 0.2.1
 com MTU 23, o cabeçalho L1 de 8 bytes chegou sempre sozinho numa notificação (79 de 79 frames RX de dados na fixture
 `technos-watch-protocol/fixtures/real/fitgps/0.2.1/pair-commands-bt-reconnect-sync.jsonl`, ex.: `AB0000061B000000` em atMs 2424 e o resto do BIND_BACK em
 2426), mesmo quando o frame inteiro caberia em 20 bytes.
@@ -169,6 +197,16 @@ com MTU 23, o cabeçalho L1 de 8 bytes chegou sempre sozinho numa notificação 
   nomes de cada perfil (`Mormaii_fitGPS`, o filtro seguro, igual ao Core atual, `SMAService.java:505-526`;
   `Life Ultra GPS` e `Smart Watch 6010` no iDO) e o serviço de cada `GattCandidate` (`FF60`, NUS, `0af0`). Um perfil novo
   no Repo 1 entra no scan sem mudança aqui.
+- **Sem filtro quando um perfil aceita prefixo de nome.** O Condor Reebok é reconhecido por qualquer nome que comece com
+  `P85` depois de `trim` (`DeviceProfile.bleNamePrefixes`; o Core do app Condor faz o `trim` em
+  `core@v4.3.57:android/src/main/java/com/crp/bluetooth/connectionmanager/CRPBleConnectHelper.java:873` e o
+  `startsWith` em `core@v4.3.57:android/src/main/java/com/reactlibrary/devices/AvailableDevices.java:55-57`), e o `ScanFilter` só
+  compara o nome exato: um `P85` com sufixo, espaço ou `NUL` passaria batido, e a validação pararia no scan. Então,
+  com esse perfil em `Profiles.all`, o `startScan` sai com a lista de filtros vazia (`FilterSpec.unfiltered`), como o
+  Core do app Condor, que também escaneia sem filtro (`CRPBleConnectHelper.java:817-881`, por 20 s; fase 0, CON-37). A identificação continua no `DeviceRegistry.identify`, então o
+  fitGPS e o Life Ultra GPS saem iguais. Nesse modo, aparelhos desconhecidos sem nome não vão para o log, para o anel
+  de 2000 entradas não encher num lugar cheio de BLE. Limite conhecido: o Android não entrega resultado de scan sem
+  filtro com a tela desligada (o scan é sempre com o app aberto).
 - `SCAN_MODE_LOW_LATENCY`, 7 s (`SMAService.java:625-635`). Um `onScannedDevice` por endereço por scan.
 - Cada resultado passa por `DeviceRegistry.identify(nome, serviços anunciados)`. Nome: `scanRecord.deviceName`, e
   `device.name` se o anúncio não trouxer nome.
@@ -199,6 +237,69 @@ com MTU 23, o cabeçalho L1 de 8 bytes chegou sempre sozinho numa notificação 
 - **Ligou:** o transporte entrega `onBluetoothStateChanged(true)` e, na mesma thread, logo depois, o `CoreGraph` chama
   `CoreBridge.onBluetoothTurnedOn`, que decide se reconecta (`reconnectIfPaired`; ordem garantida: o `reconnect`
   entra na fila da sessão depois do evento de Bluetooth).
+
+## Vínculo clássico (BR/EDR)
+
+O Condor Reebok faz chamadas e toca música pelo Bluetooth clássico (HFP e A2DP), no mesmo endereço do BLE. O BLE dele
+não tem SMP nem criptografia (HCI, conexão LE de 15:43:12 em diante: nenhum pacote SMP, link sem criptografia); o
+vínculo que importa é o clássico. Quem decide pedir é o `CoreBridge` do Repo 1 (no `READY` de um perfil com `Quirks.classicBond`,
+se `hasClassicBond` responde `false`, sem pedido em andamento nem recusa anterior desde o último `pairDevice`); o
+`AndroidCoreHost` só delega ao `ble/ClassicBonder`.
+
+O que a captura HCI do app Condor de produção mostrou (2026-10-31, horários locais):
+
+| Ponto | Visto |
+|---|---|
+| Classe e SSP | CoD `0x240404` (classe principal áudio/vídeo, secundária headset vestível; serviços Audio e Rendering), SSP NoInputNoOutput: o Android mostra o diálogo de consentimento do sistema, sem código |
+| Primeira tentativa | HCI 15:43:08: falhou com status `0x06` antes do diálogo, e o app mostrou um toast de erro |
+| Segunda tentativa | HCI 15:43:15-18: diálogo do sistema, o usuário aceitou, link key tipo 4 |
+| Perfis | SDP, RFCOMM (HFP), AVDTP (A2DP), AVCTP (AVRCP) e HID (PSM `0x11`/`0x13`), abertos pelo próprio Android menos de 1 s depois do vínculo |
+| Estado no BLE | O relógio avisa o estado do clássico no frame `F9 01 01 xx` (`00` desconectado, `01` conectado): `F9010100` em atMs 3172 e `F9010101` em atMs 7070 de `condor-app-pair-sync.jsonl`. O driver só loga |
+| Reconexão | Depois de desligar e religar o Bluetooth, foi o relógio que abriu a conexão clássica, com a chave guardada |
+
+Como o `ClassicBonder` faz:
+
+- `hasBond(address)`: `getRemoteDevice(address).bondState == BOND_BONDED` (sem permissão, `false`). O
+  `getBondState()` não diz o transporte, mas o P85 não tem SMP, então um vínculo com o endereço dele é o clássico.
+- `request(address)`: já vinculado, responde `BONDED` na hora. Senão registra um receiver de `ACTION_BOND_STATE_CHANGED`
+  filtrado pelo endereço (broadcast protegido, `RECEIVER_EXPORTED` na API 33+, como o `BluetoothStateReceiver`) e chama
+  `createBond(TRANSPORT_BREDR)` por reflexão, como a SDK CRP
+  (`sdk:com/realsil/sdk/core/bluetooth/compat/BluetoothDeviceCompat.java:78-160`, chamada por
+  `sdk:com/crrepa/ble/conn/bond/CRPBluetoothManager.java:93-96`) e o Core do app Condor (`startBtBonding`,
+  `core@v4.3.57:android/src/main/java/com/crp/bluetooth/connectionmanager/CRPBleConnectHelper.java:664-668`). O
+  transporte importa: o `createBond()` público usa `TRANSPORT_AUTO`, que num aparelho visto pelo scan BLE pode escolher
+  o LE, onde o P85 não tem SMP. Se a reflexão falhar (método oculto bloqueado), cai no `createBond()` com WARN.
+- Cada tentativa tem 45 s (o diálogo espera o usuário). Falha da tentativa: `createBond` recusado, estado
+  `BONDING → NONE` (diálogo recusado ou pilha que derrubou, como a primeira tentativa do HCI) ou prazo vencido. A
+  primeira falha gera uma nova tentativa automática 1,5 s depois (o diálogo aparece de novo); a segunda termina o pedido
+  com `FAILED`, e o `CoreBridge` emite `onError` `CLASSIC_BOND_FAILED` (`requestId` -1, `method: "classicBond"`) e não
+  pede de novo até o próximo `pairDevice`. A regra é Kotlin puro, no `ClassicBondTracker` (`ClassicBondTrackerTest`).
+  O motivo do sistema (`android.bluetooth.device.extra.REASON`, extra oculto) vai só para o log.
+- Não abre HFP nem A2DP: o Android abre sozinho (tabela acima). O app também não precisa reconectar o clássico.
+- `remove(address)` (no fim do `forgetDevice`, depois do `F8` ao relógio): `removeBond()` por reflexão
+  (`BluetoothDeviceCompat.java:198-221`; o Core faz o mesmo em `CRPBleConnectHelper.java:443-473`), com o resultado
+  só no log. Um pedido de vínculo em andamento para o mesmo endereço é cancelado e termina com `FAILED`, que o
+  `CoreBridge` só loga (o pedido foi abandonado pelo esquecer, sem `onError`). `disconnectCurrentDevice` não remove o
+  vínculo. Dois casos de borda, decididos pelo `ClassicBondRemoval` (Kotlin puro, `ClassicBondRemovalTest`):
+  - **Bluetooth desligado.** O `getBondState()` devolve `BOND_NONE` quando o serviço Bluetooth não está de pé, sem
+    olhar o vínculo, e o `removeBond()` devolve `false`. Antes, o esquecer logava "sem vínculo" e o vínculo ficava: ao
+    religar, o P85 reabre o clássico com a chave guardada (HCI 15:46:27) e chamadas e música voltam para um relógio
+    esquecido. Agora o endereço vai para as remoções pendentes (preferências `corenext_classic_bond`, chave
+    `pending_removals`), com um WARN `Bluetooth is off: the bond with … will be removed when Bluetooth turns on`, e a
+    remoção roda quando o `BluetoothStateReceiver` vê o `STATE_ON` (`ClassicBonder.onBluetoothOn`, ligado no
+    `CoreGraph`) ou na partida do processo com o Bluetooth ligado (`resumePendingRemovals`). Um `request` do mesmo
+    endereço (o relógio foi pareado de novo) descarta a remoção pendente.
+  - **Vínculo em curso** (`BOND_BONDING`, o diálogo aberto). A pilha só remove vínculo em `BOND_BONDED`, então o
+    `removeBond()` seria recusado e, se o usuário aceitasse depois, o telefone ficaria vinculado ao relógio esquecido.
+    O `ClassicBonder` chama `cancelBondProcess()` por reflexão (oculto; o resultado vai para o log) e deixa o endereço
+    pendente, com um receiver de `ACTION_BOND_STATE_CHANGED`: `BOND_BONDED` vira `removeBond()`, `BOND_NONE` encerra.
+- Tudo na thread principal (o receiver usa o `Handler` dela); `hasBond` lê o estado na thread de quem chamou.
+- Permissões: `BLUETOOTH_CONNECT` (API 31+) já é exigida para conectar; abaixo da API 31, `BLUETOOTH_ADMIN`
+  (declarada). Lint: `@SuppressLint("MissingPermission", "DiscouragedPrivateApi")`.
+
+O que o Core do app Condor faz diferente e não foi copiado: derruba a conexão depois de 12 s em "conectando"
+(`CRPBleConnectHelper.java:55, 611-623`), o que pode cair no meio do diálogo e virar um laço de diálogos; aqui o prazo
+é 45 s e uma recusa não é pedida de novo.
 
 ## Serviço em primeiro plano só no sync
 
@@ -239,9 +340,17 @@ scan não devolve nada sem localização), `BLUETOOTH_CONNECT`, `FOREGROUND_SERV
   outro telefone) faz toda conexão falhar com `CBError.peerRemovedPairingInformation`, que o host iOS entrega como
   `GattStatus.PAIRING_REMOVED`; a sessão para com `PAIRING_REMOVED` (ADR 23 do Repo 1). O par no Android (um
   `BluetoothDevice` com `BOND_BONDED` cujas chaves o relógio apagou) não foi visto, e não se sabe que status o
-  `BluetoothGatt` entrega nem se o sistema refaz o pareamento sozinho. Este transporte não cria nem remove bonds
-  (`createBond`/`removeBond`, este só por reflexão) e repassa o status nativo: a sessão trata como uma falha comum
-  (`DISCONNECTED` no pareamento, espera crescente na reconexão). Fica para quando o caso aparecer num Android.
+  `BluetoothGatt` entrega nem se o sistema refaz o pareamento sozinho. O transporte não cria nem remove bonds (o
+  vínculo clássico do Condor Reebok é do `ClassicBonder`, fora do transporte) e repassa o status nativo: a sessão trata
+  como uma falha comum (`DISCONNECTED` no pareamento, espera crescente na reconexão). Fica para quando o caso aparecer
+  num Android.
+- **Vínculo clássico por API oculta.** `createBond(int)`, `removeBond()` e `cancelBondProcess()` são ocultos; se uma
+  versão do Android bloquear a reflexão, o `createBond()` público pode escolher o transporte LE e falhar (o P85 não tem
+  SMP), a remoção não acontece (o usuário esquece o relógio nos Ajustes) e o diálogo aberto no esquecer não fecha (o
+  vínculo ainda é removido se o usuário o aceitar). Os casos aparecem no log (`ClassicBonder/`).
+- **Remoção pendente fora do app.** Uma remoção que ficou pendente (esquecer com o Bluetooth desligado) roda no próximo
+  `STATE_ON` com o processo vivo, ou na próxima partida do Core com o Bluetooth ligado. Se, nesse meio-tempo, o usuário
+  parear o relógio à mão nos Ajustes (sem o app), esse vínculo é removido; parear pelo app descarta a pendência.
 - **`autoConnect` em OEMs.** O scan por MAC cobre o caso do cache vazio; outros problemas de OEM não foram testados.
 - **Processo morto.** Sem FGS permanente, o Android pode matar o processo em segundo plano (risco 10).
 - **minSdk 26.** O transporte usa `connectGatt` com `Handler` (API 26) e `java.time`; um app com minSdk menor não
@@ -296,7 +405,9 @@ Repo 1; o que falta testar com o relógio está no `docs/pendencias.md` de lá.
    adb pull /sdcard/Android/data/br.com.grupotechnos.corenext.example/files/corenext/ ./corenext-export
    ```
 4. Copiar **só o `frames-*.jsonl` mais recente** do cenário para
-   `technos-watch-protocol/fixtures/real/fitgps/<fw>/<cenário>.jsonl` (`<fw>` como `0.2.1`, `<cenário>` em kebab-case
+   `technos-watch-protocol/fixtures/real/<perfil>/<fw>/<cenário>.jsonl` (`<perfil>` `fitgps`, `lifeultragps` ou
+   `condorreebok`; as leituras GATT do Condor Reebok saem como `"dir":"READ"`, que o replay responde; `<fw>` como
+   `0.2.1` ou `MOY-VS02-2.0.0`, `<cenário>` em kebab-case
    descrevendo o roteiro, ex.: `pair-battery-version.jsonl`). É a pasta que o `RealFixturesReplayTest` do Repo 1 lê; o
    roteiro de gravação e as regras do replay estão em
    [`docs/fixtures.md`](../../technos-watch-protocol/docs/fixtures.md), seções 2 (pastas) e 3.1 (como gravar).
@@ -313,4 +424,6 @@ exporte antes de cada `Clear` (`RingLogger.kt:63-66`).
 
 Para comparar com o app Mormaii atual, use o log HCI do Android (Opções do desenvolvedor → "Ativar registro de
 espionagem HCI Bluetooth"), `adb bugreport` e o Wireshark com filtro `btatt`; o script `hci2jsonl.py` do Repo 1
-converte para o mesmo formato.
+converte para o mesmo formato. Para o Condor Reebok, o `btsnoop2jsonl.py` do Repo 1 converte o btsnoop do app Condor
+em fixture de referência (`fixtures/reference/`), com a redação de texto pessoal e a trava contra endereço; o btsnoop
+bruto tem o MAC e nunca vai para um repositório (`docs/fixtures.md` de lá).

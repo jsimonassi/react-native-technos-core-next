@@ -158,7 +158,7 @@ const LogScreenView = ({ logs, onClear, onReload }: LogScreenProps) => {
 					</View>
 					<View style={styles.switchItem}>
 						<Switch value={framesOnly} onValueChange={setFramesOnly} />
-						<Muted>Só TX/RX</Muted>
+						<Muted>Só pacotes</Muted>
 					</View>
 				</View>
 				<ButtonRow>
@@ -180,8 +180,8 @@ const LogScreenView = ({ logs, onClear, onReload }: LogScreenProps) => {
 				</View>
 				{nativeLevel !== "DEBUG" ? (
 					<Muted>
-						Pacotes TX/RX são DEBUG no nativo: acima de DEBUG eles saem do log, mas continuam na gravação de
-						frames.
+						Pacotes TX/RX/READ são DEBUG no nativo: acima de DEBUG eles saem do log, mas continuam na
+						gravação de frames.
 					</Muted>
 				) : null}
 				{exported ? (

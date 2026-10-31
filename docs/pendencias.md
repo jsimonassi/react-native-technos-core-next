@@ -219,7 +219,67 @@ passa por ele, ou este repositório ganha assinaturas vazias (que nunca disparam
   log do lado Android (`transporte-android.md`, limites conhecidos).
 - O app de exemplo não registra modelo e versão do Android no log; hoje isso depende de anotar à mão a cada rodada
   (`example/README.md`).
-- O `.gitignore` e o `.editorconfig` da raiz ainda não estão versionados (`git ls-files .gitignore` não imprime nada;
-  o `origin/main` só tem o `example/.gitignore`). É o `.gitignore` da raiz que ignora `corenext-export/` e
-  `logs-*.jsonl`: num clone sem ele, o `adb pull` do `CLAUDE.md` seguido de `git add -A` leva o log com o MAC do
-  relógio. Entram no próximo commit; o mesmo vale para o `.gitignore` do Repo 1, que ignora os `logs-*.jsonl` lá.
+- [x] O `.gitignore` e o `.editorconfig` da raiz estão versionados (conferido em 2026-10-31: `git ls-files .gitignore
+  .editorconfig` imprime os dois). O `.gitignore` ignora `corenext-export/`, `logs-*.jsonl` e, desde 2026-10-31,
+  `btsnoop_hci.log*` (a captura HCI bruta, com endereços e texto pessoal, em qualquer pasta); o do Repo 1 ignora os
+  mesmos `logs-*.jsonl`, `corenext-export/` e `btsnoop_hci.log*`.
+
+## 7. Condor Reebok (CRP)
+
+A fase 1 do Condor Reebok (`P85`, firmware `MOY-VS02-2.0.0`) está implementada nas duas plataformas e testada só sem o
+relógio: no Repo 1, com as fixtures de referência da captura HCI do app Condor e a sintética; aqui, com a sintética no
+simulador iOS (`ios/Tests/`) e com os testes JVM do Android. O protocolo e o que falta confirmar nele (a regra de
+carregamento acima de 100, a sonda do `0x33` e o `B6` no P85, o sono de uma noite real) ficam no `docs/pendencias.md` do
+Repo 1, seção "Condor Reebok (CRP)". Aqui ficam o host e a integração.
+
+**Validação no aparelho.** Roteiro no [`example/README.md`](../example/README.md#checklist-com-o-condor-reebok-crp),
+nas duas plataformas. Do lado do host, o que só o aparelho confirma:
+
+- [ ] Android: o scan sem filtro acha o `P85` (e o log não enche com os aparelhos sem nome por perto).
+- [ ] Android: o `createBond(TRANSPORT_BREDR)` por reflexão funciona na versão do Android do teste (linha
+  `ClassicBonder/attempt … started=true`, sem o WARN de reserva para o `createBond()`), o diálogo do sistema aparece,
+  e, se a primeira tentativa falhar como no HCI do app Condor (status `0x06`), a segunda aparece sozinha 1,5 s depois. O
+  `BOND_BONDED` chega pelo receiver e o Android abre HFP e A2DP sozinho (chamadas e música no relógio).
+- [ ] Android: recusar o diálogo duas vezes dá um `onError` `CLASSIC_BOND_FAILED` (`method: "classicBond"`) e nenhum
+  diálogo a mais até um `pairDevice` novo; o BLE continua pronto.
+- [ ] Android: o `forgetDevice` escreve o `F8`, o `removeBond()` por reflexão volta `true` no log e o relógio some dos
+  Ajustes de Bluetooth.
+- [ ] Android: `Forget` com o Bluetooth desligado registra o WARN `Bluetooth is off: the bond with … will be removed
+  when Bluetooth turns on`; ao religar, o `removeBond()` sai (`Resuming 1 pending bond removal(s)`) e o relógio some
+  dos Ajustes antes de reabrir chamadas e música.
+- [ ] Android: `Forget` com o diálogo do vínculo aberto: o log mostra o `cancelBondProcess()` (e o que ele devolveu),
+  o diálogo fecha ou, aceito mesmo assim, o vínculo é removido logo depois; nenhum `onError` `CLASSIC_BOND_FAILED`.
+- [ ] As duas plataformas: o CCCD da `2a19` é aceito sem vínculo BLE e o aviso de bateria chega uma vez por minuto
+  (`onBatteryStatus` sem pedido); a `fee1` notifica andando e o `onPedometer` sai no máximo a cada 2 s.
+- [ ] iPhone: o efeito do transport bridging e se o iOS pede pareamento BLE ([`ios-pendente.md`](ios-pendente.md#condor-reebok-crp)).
+
+**Limites conhecidos do host.**
+
+- `createBond(int)` e `removeBond()` são APIs ocultas. Se um Android bloquear a reflexão, o `createBond()` público pode
+  escolher o LE (sem SMP no P85) e o pedido falha; a remoção não acontece e o usuário esquece o relógio nos Ajustes. Os
+  dois casos aparecem no log (`ClassicBonder/`), não no JS.
+- Um `forgetDevice` com o diálogo do vínculo ainda aberto cancela o pedido; o host ainda responde `FAILED` (o `CoreHost`
+  exige uma resposta por pedido), mas o `CoreBridge` marcou o pedido como abandonado pelo esquecer e só loga o
+  resultado: nenhum `onError`, nenhuma recusa. O `cancelBondProcess()` é oculto e pode não fechar o diálogo; se o usuário
+  aceitar mesmo assim, o vínculo é removido assim que aparece.
+- Um `forgetDevice` com o Bluetooth desligado deixa a remoção do vínculo pendente (preferências) até o Bluetooth ligar;
+  um vínculo feito à mão nos Ajustes nesse meio-tempo também sai ([`transporte-android.md`](transporte-android.md)).
+- A lista de recusas e o pedido em andamento vivem só em memória no `CoreBridge`: um processo novo pede o vínculo de
+  novo no primeiro `READY`. Só o `READY` que fecha um handshake consulta `hasClassicBond` (a volta de `SYNCING` não) e,
+  com o vínculo feito, loga um INFO `Classic bond with … already exists`, uma vez por conexão.
+- O `getBondState()` não diz por qual transporte o vínculo foi feito; o host trata qualquer vínculo com o endereço do P85
+  como o clássico (o BLE dele não tem SMP).
+
+**Integração com o app Condor (fase 4).**
+
+- `deviceId`: o Core do app Condor emite no iOS o MAC que vem no anúncio (`CRPDiscovery.mac`; fase 0, CON-37), e o app
+  compara MAC sem `:`; aqui o iOS dá o UUID do periférico ([`deviceId`](#deviceid-mac-no-android-uuid-no-ios)).
+- Distância e calorias: o Core Android do app Condor troca os dois campos no histórico de passos
+  (`item.putDouble("distance", calories)` e `item.putInt("calorie", distance)`,
+  `core@v4.3.57:android/src/main/java/com/crp/bluetooth/CRPService.java:391-392`), e o `EventMapper` daqui manda metros
+  em `distance` e kcal em `calorie`. Os dados que o app Condor já mandou ao backend pelo Android podem estar trocados.
+- O relógio não guarda distância nem calorias por meia hora (o P85 não respondeu `5D`/`5C` na captura): os totais do dia
+  vêm da `fee1` de hoje e, se o firmware tiver, do `33 01` de ontem. Um dia antigo sem esses totais fica só com os passos.
+- `initCRPSDK` é só um alias de `initialize` no JS. Os outros eventos e métodos que o app Condor usa (atividades,
+  estresse, frequência cardíaca, metas, 12/24 h, perfil do usuário) ficam para as fases 2 e 3 do Repo 1; a lista de
+  assinaturas do app Condor ainda não foi levantada como a do app Mormaii ([seção 5](#eventos-que-o-app-assina-e-que-não-existem-aqui)).

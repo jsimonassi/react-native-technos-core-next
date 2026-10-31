@@ -76,3 +76,38 @@ final class IdoTxMasker: PacketMasker {
 		return "\(hex2(packet[0]))/\(hex2(packet[1]))"
 	}
 }
+
+/// Port da `CrpTxMasker` (`CrpReplay.kt` do kit de teste do Repo 1): no frame `31` (acerto de hora, `FE EA b2 0A 31`)
+/// zera os bytes 5 a 8, os segundos que dependem do relógio do replay; o `08` do fim e todos os outros frames (inclusive
+/// o fuso `BB 07 00`) são comparados inteiros. Todo frame da fase 1 cabe num pacote, então não há estado.
+final class CrpTxMasker: PacketMasker {
+	private static let setTimeLength = 0x0A
+	private static let setTime: UInt8 = 0x31
+
+	func mask(_ packet: [UInt8]) -> [UInt8] {
+		var out = packet
+		if CrpTxMasker.totalLength(out) == CrpTxMasker.setTimeLength, out.count >= CrpTxMasker.setTimeLength, out[4] == CrpTxMasker.setTime {
+			for index in 5...8 { out[index] = 0 }
+		}
+		return out
+	}
+
+	/// `cmd` ou `cmd/sub` (o primeiro byte do payload), como os rótulos do `CrpReplayScenario`: `5A/00`, `B7/0E`, `BB/16`,
+	/// `31`, `BB/07`, `59/00`, `33/01`, `32`, `F8`. O `31` fica sem sub (o payload é a hora).
+	func frameKey(_ packet: [UInt8]) -> String? {
+		guard let total = CrpTxMasker.totalLength(packet), packet.count >= 5 else { return nil }
+		let cmd = packet[4]
+		if cmd == CrpTxMasker.setTime || total <= 5 || packet.count <= 5 { return hex2(cmd) }
+		return "\(hex2(cmd))/\(hex2(packet[5]))"
+	}
+
+	/// Comprimento total do frame (`FE EA` e nibble alto do byte 2 em 1, 2 ou 3; 12 bits sem sinal), ou `nil` se o
+	/// pacote não começa um frame (`CrpFrameCodec.totalLength`).
+	static func totalLength(_ packet: [UInt8]) -> Int? {
+		guard packet.count >= 5, packet[0] == 0xFE, packet[1] == 0xEA else { return nil }
+		let high = packet[2] >> 4
+		guard (1...3).contains(high) else { return nil }
+		let total = Int(packet[2] & 0x0F) << 8 | Int(packet[3])
+		return total < 5 ? nil : total
+	}
+}

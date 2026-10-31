@@ -184,6 +184,7 @@ final class HostHarness {
 
 	func describe(_ snapshot: ReplayTransport.Snapshot) -> String {
 		"consumed \(snapshot.consumed)/\(snapshot.total), TX matched \(snapshot.matchedTx)/\(snapshot.recordedTx), " +
+			"READ matched \(snapshot.matchedReads)/\(snapshot.recordedReads), " +
 			"mismatches \(snapshot.mismatches.count) \(snapshot.mismatches.first ?? ""), extra \(snapshot.extraTx), last frames \(snapshot.frameKeys.suffix(4))"
 	}
 }

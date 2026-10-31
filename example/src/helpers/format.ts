@@ -101,13 +101,21 @@ export const todayKey = (now: Date = new Date()): string =>
 export const prettyJson = (value: unknown): string => JSON.stringify(value, null, "\t");
 
 /**
- * O que a pessoa tem de fazer para um código de erro que o app não resolve sozinho, ou `null`. Hoje só
- * `PAIRING_REMOVED`: o iPhone guarda um vínculo Bluetooth que o relógio apagou, e só os Ajustes o removem.
+ * O que a pessoa tem de fazer para um código de erro que o app não resolve sozinho, ou `null`:
+ * - `PAIRING_REMOVED`: o iPhone guarda um vínculo Bluetooth que o relógio apagou, e só os Ajustes o removem;
+ * - `CLASSIC_BOND_FAILED`: o vínculo das chamadas e da música do Condor Reebok não saiu (diálogo recusado ou sem
+ *   resposta); o nativo só pede de novo num `pairDevice` novo.
  */
-export const errorHint = (code: string | null | undefined): string | null =>
-	code === errorCodes.PAIRING_REMOVED
-		? "Esqueça o relógio em Ajustes > Bluetooth do iPhone e tente parear de novo."
-		: null;
+export const errorHint = (code: string | null | undefined): string | null => {
+	switch (code) {
+		case errorCodes.PAIRING_REMOVED:
+			return "Esqueça o relógio em Ajustes > Bluetooth do iPhone e tente parear de novo.";
+		case errorCodes.CLASSIC_BOND_FAILED:
+			return "Chamadas e música ficam sem vínculo. Pareie de novo e aceite o pedido de pareamento do Android.";
+		default:
+			return null;
+	}
+};
 
 /** Mensagem curta de um erro: `CODE: mensagem` quando veio do nativo, com a dica de {@link errorHint} na frente. */
 export const describeError = (error: unknown): string => {

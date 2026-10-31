@@ -80,10 +80,11 @@ describe("format", () => {
 		expect(todayKey(new Date(2026, 0, 5))).toBe("2026-01-05");
 	});
 
-	it("PAIRING_REMOVED ganha a dica dos Ajustes; os outros erros ficam como estão", () => {
+	it("PAIRING_REMOVED e CLASSIC_BOND_FAILED ganham dica; os outros erros ficam como estão", () => {
 		const hint = "Esqueça o relógio em Ajustes > Bluetooth do iPhone e tente parear de novo.";
 		expect(errorHint("PAIRING_REMOVED")).toBe(hint);
 		expect(errorHint("HANDSHAKE_FAILED")).toBeNull();
+		expect(errorHint("CLASSIC_BOND_FAILED")).toContain("Pareie de novo");
 		expect(errorHint(null)).toBeNull();
 		const removed = Object.assign(new Error("the watch erased the Bluetooth pairing"), { code: "PAIRING_REMOVED" });
 		expect(describeError(removed)).toBe(`${hint}\nPAIRING_REMOVED: the watch erased the Bluetooth pairing`);

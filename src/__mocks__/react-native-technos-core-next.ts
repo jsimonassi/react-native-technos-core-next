@@ -86,6 +86,7 @@ export const TechnosCore: MockedTechnosCore = {
 	logLevels,
 	initialize: resolved(),
 	initSMASDK: resolved(),
+	initCRPSDK: resolved(),
 	scan: jest.fn(),
 	stopScan: jest.fn(),
 	pairDevice: resolved(),
@@ -118,6 +119,7 @@ const applyDefaults = (): void => {
 	const promiseMethods = [
 		TechnosCore.initialize,
 		TechnosCore.initSMASDK,
+		TechnosCore.initCRPSDK,
 		TechnosCore.pairDevice,
 		TechnosCore.startPairingAttempt,
 		TechnosCore.disconnectCurrentDevice,

@@ -19,7 +19,7 @@ cache; quem precisa disso é o app (o exemplo faz em `example/src/hooks/useCoreE
 | `types/compat.ts` | Apelidos com os nomes de tipo do Core atual (`TechnosPedometerHistory`...). | JS |
 | `constants.ts` | `deviceConnectStates`, `deletedCategory`, `errorCodes`, `logLevels`, `technosEventNames`. | JS |
 | `utils/` | `getNativeEventData`, `requestNativeEventData`, `getErrorCode`, agrupamento do `deletedSavedData`. | JS |
-| `index.ts` | `TechnosCore` e `TechnosEvents` sobre o spec; reexporta o resto. | JS |
+| `index.ts` | `TechnosCore` e `TechnosEvents` sobre o spec; reexporta o resto. Os aliases do Core atual (`initSMASDK`, que tem método próprio no spec, e `initCRPSDK`, só no JS, que chama o `initialize` nativo) também moram aqui. | JS |
 | `__mocks__/react-native-technos-core-next.ts` | Mock oficial: `jest.fn`, emissores em memória, `mockEmit`. | JS |
 
 ## Dependências
@@ -31,7 +31,10 @@ cache; quem precisa disso é o app (o exemplo faz em `example/src/hooks/useCoreE
 ## Invariantes
 
 - Os valores de `deviceConnectStates` e `deletedCategory` são os do Core atual e não mudam.
-- `errorCodes` acompanha `WatchErrorCodes.kt` (`:protocol`) e `HostErrorCodes.kt` (`:bridge`), os dois no Repo 1.
+- `errorCodes` acompanha `WatchErrorCodes.kt` (`:protocol`, treze códigos) e `HostErrorCodes.kt` (`:bridge`, cinco,
+  com o `CLASSIC_BOND_FAILED` do Condor Reebok), os dois no Repo 1.
+- Um alias novo de método sem efeito próprio (como `initCRPSDK`) fica só no JS: não muda o spec, o codegen nem os
+  módulos nativos. Ele entra no mock (`TechnosCore` e `promiseMethods`) e no `wrapper.test.ts`.
 - Nada aqui guarda estado entre chamadas; `getNativeEventData` e `requestNativeEventData` sempre removem a inscrição.
 - Mudou spec, payload ou constante: atualize `docs/api-js.md`, o mock e os testes do exemplo no mesmo PR.
 

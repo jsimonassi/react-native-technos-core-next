@@ -113,6 +113,12 @@ class DeletedSavedDataEquivalenceTest {
 		override fun clearLogs() {}
 
 		override fun setLogLevel(level: LogLevel) {}
+
+		override fun hasClassicBond(address: String): Boolean = false
+
+		override fun requestClassicBond(address: String) {}
+
+		override fun removeClassicBond(address: String) {}
 	}
 
 	private val logger = CapturingLogger()

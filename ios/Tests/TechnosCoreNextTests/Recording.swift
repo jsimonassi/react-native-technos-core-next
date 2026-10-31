@@ -4,10 +4,22 @@ import TechnosWatchProtocol
 /// Uma gravação `.jsonl` do Repo 1 (`docs/fixtures.md` de lá): cabeçalho e pacotes GATT crus. Leitor mínimo, par do
 /// `RecordingLoader` do kit de teste do Repo 1.
 struct Recording {
+	/// `dir` de um pacote: escrita do app (`TX`), notificação do relógio (`RX`) ou valor devolvido por uma leitura GATT
+	/// (`READ`; versão, firmware, bateria e passos do CRP são leituras).
+	enum Direction: String {
+		case tx = "TX"
+		case rx = "RX"
+		case read = "READ"
+	}
+
 	struct Packet {
-		let tx: Bool
+		let dir: Direction
 		let characteristic: String
 		let value: [UInt8]
+
+		var tx: Bool { dir == .tx }
+		/// Um pedido do app (escrita ou leitura): o replay responde a ele com os RX gravados em seguida.
+		var isRequest: Bool { dir != .rx }
 	}
 
 	let source: String
@@ -19,6 +31,7 @@ struct Recording {
 	let packets: [Packet]
 
 	var txCount: Int { packets.filter(\.tx).count }
+	var readCount: Int { packets.filter { $0.dir == .read }.count }
 
 	enum LoadError: Error, CustomStringConvertible {
 		case unreadable(String)
@@ -55,12 +68,13 @@ struct Recording {
 			}
 			guard object["type"] as? String == "packet" else { continue }
 			guard
-				let dir = object["dir"] as? String,
+				let dirName = object["dir"] as? String,
+				let dir = Direction(rawValue: dirName),
 				let characteristic = object["characteristic"] as? String,
 				let hex = object["hex"] as? String,
 				let bytes = decodeHex(hex)
 			else { throw LoadError.badPacket(url.path, offset + 2) }
-			packets.append(Packet(tx: dir == "TX", characteristic: characteristic, value: bytes))
+			packets.append(Packet(dir: dir, characteristic: characteristic, value: bytes))
 		}
 		return Recording(
 			source: url.lastPathComponent,

@@ -9,8 +9,9 @@ import TechnosWatchProtocol
 /// (`CoreBridge.invalidate`) do controlador.
 ///
 /// Não decide nada: o que cada método JS faz mora no `CoreBridge`. Aqui ficam só as ligações que dependem do iOS: o
-/// scan e o log entregam ao controlador, e o estado do Bluetooth passa pelo transporte (que tem o papel dele no contrato
-/// B) antes de avisar o controlador (`HostTransportDelegate`).
+/// scan, o log e o resultado do vínculo clássico entregam ao controlador, o estado do Bluetooth passa pelo transporte
+/// (que tem o papel dele no contrato B) antes de avisar o controlador, e as opções do connect saem do perfil da sessão
+/// (`HostTransportDelegate`).
 ///
 /// Criado por `CoreNext.bootstrap(launchOptions:)` no launch do app (para a restauração do Bluetooth) ou, sem isso, no
 /// primeiro método JS.
@@ -88,6 +89,10 @@ final class CoreGraph: HostTransportDelegate {
 		self.host = host
 		// O construtor liga o listener da sessão; os callbacks do transporte e do log só chegam depois desta linha.
 		bridge = CoreBridge(session: session, logger: logger, host: host)
+		// O resultado do vínculo clássico (sempre "não suportado" no iOS) volta ao controlador; fraco para não reter o bridge.
+		host.onClassicBondResult = { [weak bridge] address, result, message in
+			bridge?.onClassicBondResult(address: address, result: result, message: message)
+		}
 		// O CoreBridge manda o onLog sem fila: é volumoso e já fica no anel (getLogs).
 		logger.onEntry = { [bridge] entry in bridge.onLogEntry(entry: entry.coreLogEntry) }
 		// Por último: o central nasce aqui, e o primeiro estado dele já encontra o controlador pronto.
@@ -129,5 +134,12 @@ final class CoreGraph: HostTransportDelegate {
 
 	func transportScanFailed(errorCode: Int32, message: String) {
 		bridge.onScanFailed(errorCode: errorCode, message: message)
+	}
+
+	/// Opções do connect pelo perfil da sessão: transport bridging só com `Quirks.iosTransportBridging` (Condor Reebok).
+	/// A sessão grava o perfil (`currentProfileId`) antes de pedir o `connect` ao transporte.
+	func transportConnectOptions() -> [String: Any]? {
+		let bridging = session.currentProfileId.flatMap { DeviceRegistry.shared.byId(id: $0) }?.quirks.iosTransportBridging ?? false
+		return CentralTransport.connectOptions(transportBridging: bridging)
 	}
 }

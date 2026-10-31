@@ -47,6 +47,12 @@ export const TechnosCore = {
 	initSMASDK: (): Promise<void> => NativeCoreNext.initSMASDK(),
 
 	/**
+	 * Alias de {@link TechnosCore.initialize}, com o nome que o app Condor usa para o Condor Reebok (família CRP). Só no
+	 * JS: chama o mesmo `initialize` nativo, porque o grafo nativo é um só para todas as famílias.
+	 */
+	initCRPSDK: (): Promise<void> => NativeCoreNext.initialize(),
+
+	/**
 	 * Procura relógios por 7 s. Cada relógio de um modelo suportado vira um `onScannedDevice`, uma vez por endereço
 	 * por busca (o Core atual emite a cada anúncio). Não há evento de fim de busca. Sem permissão ou com o Bluetooth
 	 * desligado, não lança: emite `onError` com `method: "scan"` (`PERMISSION_DENIED` ou `BLUETOOTH_OFF`).
@@ -59,14 +65,18 @@ export const TechnosCore = {
 	/**
 	 * Primeiro pareamento com um relógio vindo de `onScannedDevice`.
 	 *
-	 * Resolve quando a conexão fica pronta (`onConnectStateChanged` com `state = connected`). O BIND espera até
-	 * 60 s pela confirmação na tela do relógio. Rejeita na hora com `PERMISSION_DENIED`, `BLUETOOTH_OFF`,
-	 * `INVALID_ARGUMENT` ou `UNSUPPORTED_DEVICE`; depois, com `CANCELLED`, `TRANSPORT`, `CONNECT_TIMEOUT`, `GATT_NOT_SUPPORTED`,
-	 * `HANDSHAKE_FAILED`, `DISCONNECTED` ou `PAIRING_REMOVED` (o usuário tem de esquecer o relógio nas configurações de
-	 * Bluetooth do telefone; hoje só o iOS detecta). No Core atual é `void` e não informa falha.
+	 * Resolve quando a conexão fica pronta (`onConnectStateChanged` com `state = connected`). No fitGPS o BIND espera
+	 * até 60 s pela confirmação na tela do relógio; no Condor Reebok não há confirmação (só a leitura da versão, fase
+	 * `VERSION`), e logo depois o nativo pede o vínculo Bluetooth clássico das chamadas e da música (no Android, o
+	 * diálogo do sistema; uma falha sai só em `onError` com `CLASSIC_BOND_FAILED`).
 	 *
-	 * @param deviceId MAC do relógio (`onScannedDevice.deviceId`).
-	 * @param name `onScannedDevice.name` (ex.: `"fitGPS"`).
+	 * Rejeita na hora com `PERMISSION_DENIED`, `BLUETOOTH_OFF`, `INVALID_ARGUMENT` ou `UNSUPPORTED_DEVICE`; depois, com
+	 * `CANCELLED`, `TRANSPORT`, `CONNECT_TIMEOUT`, `GATT_NOT_SUPPORTED`, `HANDSHAKE_FAILED`, `DISCONNECTED` ou
+	 * `PAIRING_REMOVED` (o usuário tem de esquecer o relógio nas configurações de Bluetooth do telefone; hoje só o iOS
+	 * detecta). No Core atual é `void` e não informa falha.
+	 *
+	 * @param deviceId MAC do relógio (`onScannedDevice.deviceId`; no iOS, o UUID do periférico).
+	 * @param name `onScannedDevice.name` (ex.: `"fitGPS"`, `"Condor Reebok"`).
 	 */
 	pairDevice: (deviceId: string, name: string): Promise<void> => NativeCoreNext.pairDevice(deviceId, name),
 
@@ -87,8 +97,10 @@ export const TechnosCore = {
 	disconnectCurrentDevice: (): Promise<void> => NativeCoreNext.disconnectCurrentDevice(),
 
 	/**
-	 * Desconecta, desfaz o vínculo no relógio (UNBIND, se conectado), esquece o pareamento salvo e apaga o histórico
-	 * local. Equivale ao `disconnectCurrentDevice` do Core atual. Novo.
+	 * Desconecta, desfaz o vínculo no relógio (UNBIND no fitGPS, `F8` no Condor Reebok, se conectado), esquece o
+	 * pareamento salvo e apaga o histórico local. No Condor Reebok também remove o vínculo Bluetooth clássico do sistema
+	 * no Android (no iPhone só o usuário remove, em Ajustes > Bluetooth). Equivale ao `disconnectCurrentDevice` do Core
+	 * atual. Novo.
 	 */
 	forgetDevice: (): Promise<void> => NativeCoreNext.forgetDevice(),
 
@@ -113,7 +125,10 @@ export const TechnosCore = {
 	/** Lê a versão do firmware (mesma leitura de `getDeviceInfo`). Emite `onFirmwareInfo`, no formato do Core atual. */
 	getFirmwareInfo: (): Promise<void> => NativeCoreNext.getFirmwareInfo(),
 
-	/** Lê a bateria. Emite `onBatteryStatus`, no formato do Core atual, e resolve em seguida. */
+	/**
+	 * Lê a bateria. Emite `onBatteryStatus`, no formato do Core atual, e resolve em seguida. O Condor Reebok também
+	 * avisa sozinho (cerca de uma vez por minuto): sai um `onBatteryStatus` sem pedido.
+	 */
 	getBatteryStatus: (): Promise<void> => NativeCoreNext.getBatteryStatus(),
 
 	/**
@@ -206,9 +221,12 @@ export const TechnosEvents: TechnosEventEmitters = {
 	onDeviceInfo: typed("onDeviceInfo"),
 	/** Resposta de `getFirmwareInfo`. */
 	onFirmwareInfo: typed("onFirmwareInfo"),
-	/** Resposta de `getBatteryStatus`. */
+	/** Resposta de `getBatteryStatus`, ou aviso do relógio (Condor Reebok). */
 	onBatteryStatus: typed("onBatteryStatus"),
-	/** Total de passos de hoje, depois de `refreshSteps` ou quando o relógio avisa que os dados mudaram. */
+	/**
+	 * Total de passos de hoje, depois de `refreshSteps`, quando o relógio avisa que os dados mudaram ou, no Condor
+	 * Reebok, com os passos ao vivo (no máximo um a cada 2 s).
+	 */
 	onPedometer: typed("onPedometer"),
 	/** Resposta de `getHistoryPedometer`. */
 	onHistoryPedometer: typed("onHistoryPedometer"),

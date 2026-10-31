@@ -143,7 +143,7 @@ const ConnectionScreenView = ({ state, permissions, init, onClearDevices, onClea
 	const confirmForget = useCallback(() => {
 		Alert.alert(
 			"Esquecer relógio?",
-			"Desfaz o vínculo no relógio quando o modelo suporta (no Life Ultra GPS nada é enviado e o relógio continua vinculado), apaga o pareamento salvo e o histórico local.",
+			"Desfaz o vínculo no relógio quando o modelo suporta (no Life Ultra GPS nada é enviado e o relógio continua vinculado), apaga o pareamento salvo e o histórico local. No Condor Reebok, o Android também remove o relógio dos Ajustes de Bluetooth (com o Bluetooth desligado, isso acontece quando ele for ligado); no iPhone, esqueça-o lá à mão.",
 			[
 				{ text: "Cancelar", style: "cancel" },
 				{

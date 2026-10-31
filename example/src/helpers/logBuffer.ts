@@ -14,7 +14,7 @@ export interface LogFilter {
 	text: string;
 	/** Nível mínimo exibido. */
 	minLevel: LogLevelName;
-	/** Mostra só os pacotes GATT (TX/RX). */
+	/** Mostra só os pacotes GATT (TX, RX e READ, as leituras do Condor Reebok). */
 	framesOnly: boolean;
 }
 

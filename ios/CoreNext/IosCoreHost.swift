@@ -12,6 +12,9 @@ import TechnosWatchProtocol
 /// thread-safe (o transporte despacha para a fila dele e protege o estado lido daqui, o `PairingStore` fica sobre o
 /// `UserDefaults`, o `RingLogger`, o `FrameRecorder` e o `BackgroundWork` têm trava). Nenhum método lança, salvo o
 /// `exportLogs`.
+///
+/// Vínculo Bluetooth clássico (`Quirks.classicBond`, o Condor Reebok): o iOS não deixa o app criar nem remover; o host
+/// responde "não suportado" com a dica de parear em Ajustes > Bluetooth, e o `CoreBridge` só registra um WARN.
 final class IosCoreHost: NSObject, CoreHost {
 	/// Nome da autorização na mensagem `"Missing <nome>"` do `onError` (`docs/arquitetura.md` do Repo 1, seção 13).
 	static let bluetoothPermissionName = "Bluetooth"
@@ -97,6 +100,36 @@ final class IosCoreHost: NSObject, CoreHost {
 	func clearLogs() { logger.clear() }
 
 	func setLogLevel(level: LogLevel) { logger.minLevel = level }
+
+	// MARK: - Vínculo Bluetooth clássico
+
+	/// Para onde vai o resultado de `requestClassicBond`; o `CoreGraph` liga ao `CoreBridge.onClassicBondResult` depois de
+	/// criar o controlador, antes de qualquer pedido. Escrito uma vez, lido numa fila global.
+	var onClassicBondResult: ((String, ClassicBondResult, String) -> Void)?
+
+	/// O que o usuário tem de fazer no iPhone para ter chamadas e música no relógio (o app não cria vínculo clássico).
+	static let classicBondHint = "iOS apps cannot create a classic Bluetooth bond; pair calls in Settings > Bluetooth"
+
+	/// O que o usuário tem de fazer no iPhone depois de esquecer o relógio no app.
+	static let classicBondRemovalHint = "iOS apps cannot remove a classic Bluetooth bond; forget the watch in Settings > Bluetooth"
+
+	/// Sempre `false`: o app não enxerga os vínculos do sistema (o `CoreBridge` então pede, e o pedido volta "não suportado").
+	func hasClassicBond(address: String) -> Bool { false }
+
+	/// O iOS não deixa o app criar o vínculo clássico (HFP/A2DP): o usuário pareia em Ajustes > Bluetooth. Responde
+	/// `.unsupported` com a dica, de forma assíncrona, uma vez por pedido, como o `CoreHost` pede. Numa fila global e não
+	/// na principal: o `CoreBridge` aceita qualquer thread, e a resposta não fica presa atrás de um main ocupado.
+	func requestClassicBond(address: String) {
+		logger.log(level: LogLevel.warn, tag: "IosCoreHost/requestClassicBond", message: "\(address): \(IosCoreHost.classicBondHint)")
+		DispatchQueue.global(qos: .utility).async { [weak self] in
+			self?.onClassicBondResult?(address, ClassicBondResult.unsupported, IosCoreHost.classicBondHint)
+		}
+	}
+
+	/// Só o log com a dica: o app não remove vínculos do sistema (nem o clássico nem o do BLE).
+	func removeClassicBond(address: String) {
+		logger.log(level: LogLevel.info, tag: "IosCoreHost/removeClassicBond", message: "\(address): \(IosCoreHost.classicBondRemovalHint)")
+	}
 
 	/// `yyyyMMdd-HHmmss` no fuso do telefone, como o carimbo do Android.
 	static func stamp(_ date: Date) -> String {

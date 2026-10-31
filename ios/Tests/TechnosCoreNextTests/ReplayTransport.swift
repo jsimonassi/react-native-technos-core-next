@@ -5,10 +5,13 @@ import TechnosWatchProtocol
 /// `HostTransport` de teste que se comporta como o relógio de uma gravação real, para rodar o host iOS inteiro
 /// (`CoreGraph`, `IosCoreHost`, stores, logger, `CoreBridge` e a sessão Kotlin) no simulador, que não tem Bluetooth.
 ///
-/// Como o `ReplayDriver` do Repo 1: a cada TX da sessão, compara com o próximo TX da gravação (bytes iguais depois da
-/// máscara da família: `SmaTxMasker` ou `IdoTxMasker`) e emite, na ordem, todos os RX gravados até o TX seguinte; os RX
-/// antes do primeiro TX saem quando as notificações são ligadas. Divergências não lançam: vão para `mismatches`. Um TX
-/// depois do fim da gravação vai para `extraTx` (o UNBIND de um forget que a gravação não tem).
+/// Como o `ReplayDriver` do Repo 1: um pedido é um TX ou uma leitura (READ). A cada TX da sessão, compara com o próximo
+/// TX da gravação (bytes iguais depois da máscara da família: `SmaTxMasker`, `IdoTxMasker` ou `CrpTxMasker`); a cada
+/// leitura, responde com o próximo pacote, que tem de ser um READ da mesma characteristic (senão, divergência e
+/// `NOT_FOUND`). Depois de cada pedido emite, na ordem, todos os RX gravados até o pedido seguinte, cada um na
+/// characteristic gravada (o CRP notifica em `fee3`, `fee1` e `2a19`); os RX antes do primeiro pedido saem quando as
+/// notificações são ligadas. Divergências não lançam: vão para `mismatches`. Um TX depois do fim da gravação vai para
+/// `extraTx` (o UNBIND de um forget que a gravação não tem).
 ///
 /// Como o `CentralTransport`: tudo roda numa fila serial própria; cada método só despacha para ela, e os eventos saem
 /// de lá, de forma assíncrona (a escrita termina com `onWriteCompleted` antes dos RX, nos dois tipos de escrita); as
@@ -35,6 +38,7 @@ final class ReplayTransport: NSObject, HostTransport {
 	private let expectedMasker: PacketMasker
 	private let actualMasker: PacketMasker
 	private var matchedTx = 0
+	private var matchedReads = 0
 	private var mismatches: [String] = []
 	private var extraTx: [String] = []
 	private var frameKeys: [String] = []
@@ -56,6 +60,9 @@ final class ReplayTransport: NSObject, HostTransport {
 		if profile.family == Family.sma {
 			expectedMasker = SmaTxMasker()
 			actualMasker = SmaTxMasker()
+		} else if profile.family == Family.crp {
+			expectedMasker = CrpTxMasker()
+			actualMasker = CrpTxMasker()
 		} else {
 			expectedMasker = IdoTxMasker()
 			actualMasker = IdoTxMasker()
@@ -71,6 +78,8 @@ final class ReplayTransport: NSObject, HostTransport {
 		let total: Int
 		let matchedTx: Int
 		let recordedTx: Int
+		let matchedReads: Int
+		let recordedReads: Int
 		let mismatches: [String]
 		let extraTx: [String]
 		let frameKeys: [String]
@@ -78,7 +87,8 @@ final class ReplayTransport: NSObject, HostTransport {
 		let connects: [String]
 		let disconnects: Int
 		let notifications: Int
-		/// O próximo pacote da gravação é um TX ainda não escrito (ou a gravação acabou): nada pendente do lado do relógio.
+		/// O próximo pacote da gravação é um pedido (TX ou READ) ainda não feito, ou a gravação acabou: nada pendente do
+		/// lado do relógio.
 		let waitingForTx: Bool
 	}
 
@@ -89,6 +99,8 @@ final class ReplayTransport: NSObject, HostTransport {
 				total: recording.packets.count,
 				matchedTx: matchedTx,
 				recordedTx: recording.txCount,
+				matchedReads: matchedReads,
+				recordedReads: recording.readCount,
 				mismatches: mismatches,
 				extraTx: extraTx,
 				frameKeys: frameKeys,
@@ -96,7 +108,7 @@ final class ReplayTransport: NSObject, HostTransport {
 				connects: connects,
 				disconnects: disconnects,
 				notifications: notifications,
-				waitingForTx: index >= recording.packets.count || recording.packets[index].tx
+				waitingForTx: index >= recording.packets.count || recording.packets[index].isRequest
 			)
 		}
 	}
@@ -205,9 +217,10 @@ final class ReplayTransport: NSObject, HostTransport {
 				self.events?.onServicesDiscovered(services: [], status: GattStatus.shared.NOT_CONNECTED)
 				return
 			}
-			// O fitGPS 0.2.1 expõe só o NUS (sem FF60); o Life Ultra GPS, o 0AF0 com as duas notificações.
+			// O fitGPS 0.2.1 expõe só o NUS (sem FF60); o Life Ultra GPS, o 0AF0 com as duas notificações; o P85, o FEEA e os
+			// serviços das notificações laterais (180D, 180F).
 			let candidates = self.profile.family == Family.sma ? [Profiles.shared.SMA_NUS] : self.profile.gattCandidates
-			self.events?.onServicesDiscovered(services: candidates.map(ReplayTransport.service), status: GattStatus.shared.SUCCESS)
+			self.events?.onServicesDiscovered(services: ReplayTransport.services(candidates), status: GattStatus.shared.SUCCESS)
 		}
 	}
 
@@ -245,15 +258,39 @@ final class ReplayTransport: NSObject, HostTransport {
 
 	func read(service: String, characteristic: String, requestId: Int32) {
 		queue.async {
-			self.events?.onReadCompleted(requestId: requestId, data: nil, status: GattStatus.shared.NOT_FOUND)
+			guard self.linkOpen else {
+				self.events?.onReadCompleted(requestId: requestId, data: nil, status: GattStatus.shared.NOT_CONNECTED)
+				return
+			}
+			let wanted = GattUuid.shared.normalize(uuid: characteristic)
+			guard
+				self.index < self.recording.packets.count,
+				self.recording.packets[self.index].dir == .read,
+				GattUuid.shared.normalize(uuid: self.recording.packets[self.index].characteristic) == wanted
+			else {
+				let next = self.index < self.recording.packets.count ? "\(self.recording.packets[self.index])" : "end of recording"
+				self.mismatches.append("unexpected READ of \(characteristic) (next recorded: \(next)) in \(self.recording.source)")
+				self.events?.onReadCompleted(requestId: requestId, data: nil, status: GattStatus.shared.NOT_FOUND)
+				return
+			}
+			let packet = self.recording.packets[self.index]
+			self.index += 1
+			self.matchedReads += 1
+			// A resposta da leitura antes dos RX gravados depois dela, como no rádio.
+			self.events?.onReadCompleted(requestId: requestId, data: Data(packet.value), status: GattStatus.shared.SUCCESS)
+			self.emitRxUntilNextTx()
 		}
 	}
 
 	// MARK: - Replay (na queue)
 
 	private func handleTx(_ sent: [UInt8]) {
-		guard index < recording.packets.count, recording.packets[index].tx else {
+		guard index < recording.packets.count else {
 			extraTx.append(Recording.hex(sent))
+			return
+		}
+		guard recording.packets[index].tx else {
+			mismatches.append("unexpected TX \(Recording.hex(sent)) (next recorded: \(recording.packets[index])) in \(recording.source)")
 			return
 		}
 		let expected = recording.packets[index]
@@ -268,8 +305,9 @@ final class ReplayTransport: NSObject, HostTransport {
 		emitRxUntilNextTx()
 	}
 
+	/// Emite os RX gravados até o próximo pedido (TX ou READ).
 	private func emitRxUntilNextTx() {
-		while index < recording.packets.count, !recording.packets[index].tx {
+		while index < recording.packets.count, recording.packets[index].dir == .rx {
 			let packet = recording.packets[index]
 			index += 1
 			notifications += 1
@@ -278,14 +316,29 @@ final class ReplayTransport: NSObject, HostTransport {
 		}
 	}
 
-	private static func service(_ candidate: GattCandidate) -> DiscoveredService {
-		var characteristics = [
-			DiscoveredCharacteristic(uuid: candidate.write, canRead: false, canWrite: true, canWriteWithoutResponse: true, canNotify: false),
-			DiscoveredCharacteristic(uuid: candidate.notify, canRead: false, canWrite: false, canWriteWithoutResponse: false, canNotify: true),
-		]
-		for extra in candidate.extraNotify {
-			characteristics.append(DiscoveredCharacteristic(uuid: extra, canRead: false, canWrite: false, canWriteWithoutResponse: false, canNotify: true))
+	/// Os serviços de cada candidato: escrita, notificação e `extraNotify` no serviço principal, e cada `sideNotify` no
+	/// serviço dela (no mesmo, se for o principal), com leitura e notificação, como o `FakeTransport.servicesOf` do Repo 1.
+	private static func services(_ candidates: [GattCandidate]) -> [DiscoveredService] {
+		var order: [String] = []
+		var byService: [String: [DiscoveredCharacteristic]] = [:]
+		func add(_ service: String, _ characteristic: DiscoveredCharacteristic) {
+			if byService[service] == nil {
+				order.append(service)
+				byService[service] = []
+			}
+			if byService[service]?.contains(where: { $0.uuid == characteristic.uuid }) == true { return }
+			byService[service]?.append(characteristic)
 		}
-		return DiscoveredService(uuid: candidate.service, characteristics: characteristics)
+		for candidate in candidates {
+			add(candidate.service, DiscoveredCharacteristic(uuid: candidate.write, canRead: false, canWrite: true, canWriteWithoutResponse: true, canNotify: false))
+			add(candidate.service, DiscoveredCharacteristic(uuid: candidate.notify, canRead: false, canWrite: false, canWriteWithoutResponse: false, canNotify: true))
+			for extra in candidate.extraNotify {
+				add(candidate.service, DiscoveredCharacteristic(uuid: extra, canRead: false, canWrite: false, canWriteWithoutResponse: false, canNotify: true))
+			}
+			for side in candidate.sideNotify {
+				add(side.service, DiscoveredCharacteristic(uuid: side.characteristic, canRead: true, canWrite: false, canWriteWithoutResponse: false, canNotify: true))
+			}
+		}
+		return order.map { DiscoveredService(uuid: $0, characteristics: byService[$0] ?? []) }
 	}
 }

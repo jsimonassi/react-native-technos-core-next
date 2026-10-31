@@ -5,10 +5,12 @@ import android.content.Context
 import br.com.grupotechnos.corenext.ble.AndroidGattTransport
 import br.com.grupotechnos.corenext.ble.BlePermissions
 import br.com.grupotechnos.corenext.ble.BleScanner
+import br.com.grupotechnos.corenext.ble.ClassicBonder
 import br.com.grupotechnos.corenext.ble.SyncForegroundService
 import br.com.grupotechnos.corenext.log.FrameRecorder
 import br.com.grupotechnos.corenext.log.RingLogger
 import br.com.grupotechnos.corenext.store.PairingPrefs
+import br.com.grupotechnos.watch.bridge.ClassicBondResult
 import br.com.grupotechnos.watch.bridge.CoreHost
 import br.com.grupotechnos.watch.bridge.CoreLogEntry
 import br.com.grupotechnos.watch.bridge.CorePairing
@@ -26,9 +28,10 @@ import java.time.format.DateTimeFormatter
  * seção 13, do Repo 1). O que dá para conferir sem Android (os nomes das permissões nas mensagens e as conversões
  * entre os tipos daqui e os do `:bridge`) fica nas funções do fim do arquivo, testadas na JVM (`AndroidCoreHostTest`).
  *
- * Threads: as peças já são thread-safe ([BlePermissions] não tem estado, o [BleScanner] posta na main, o
- * [PairingPrefs] fica sobre `SharedPreferences`, o [SyncForegroundService] trava o próprio estado e o [RingLogger] e o
- * [FrameRecorder] também), então os métodos podem vir de qualquer thread, como o KDoc do [CoreHost] exige.
+ * Threads: as peças já são thread-safe ([BlePermissions] não tem estado, o [BleScanner] e o [ClassicBonder] postam na
+ * main, o [PairingPrefs] fica sobre `SharedPreferences`, o [SyncForegroundService] trava o próprio estado e o
+ * [RingLogger] e o [FrameRecorder] também), então os métodos podem vir de qualquer thread, como o KDoc do [CoreHost]
+ * exige.
  */
 internal class AndroidCoreHost(
 	private val appContext: Context,
@@ -37,6 +40,7 @@ internal class AndroidCoreHost(
 	private val prefs: PairingPrefs,
 	private val scanner: BleScanner,
 	private val transport: AndroidGattTransport,
+	private val classicBonder: ClassicBonder,
 ) : CoreHost {
 	override fun missingScanPermission(): String? =
 		missingPermission(BlePermissions.hasScanPermission(appContext), BlePermissions.scanPermissionName())
@@ -112,6 +116,19 @@ internal class AndroidCoreHost(
 		logger.minLevel = level
 	}
 
+	/** `BOND_BONDED` no sistema para [address] ([ClassicBonder.hasBond]); sem permissão, `false`. */
+	override fun hasClassicBond(address: String): Boolean = classicBonder.hasBond(address)
+
+	/** `createBond(TRANSPORT_BREDR)` com uma nova tentativa ([ClassicBonder.request]); o resultado volta pelo `CoreGraph`. */
+	override fun requestClassicBond(address: String) {
+		classicBonder.request(address)
+	}
+
+	/** `removeBond()` por reflexão, no melhor esforço ([ClassicBonder.remove]). */
+	override fun removeClassicBond(address: String) {
+		classicBonder.remove(address)
+	}
+
 	companion object {
 		/**
 		 * Nome da permissão de conexão na mensagem `"Missing BLUETOOTH_CONNECT"`. É o nome curto, e não o
@@ -140,3 +157,12 @@ internal fun PairingPrefs.Pairing.toCorePairing(): CorePairing =
 /** Pareamento do `:bridge` na forma que o [PairingPrefs] grava. */
 internal fun CorePairing.toPrefsPairing(): PairingPrefs.Pairing =
 	PairingPrefs.Pairing(address = address, profileId = profileId, name = name)
+
+/**
+ * Resultado do [ClassicBonder] na forma do `:bridge`. O Android não tem "não suportado": um sistema que recusa o
+ * `createBond` é uma falha ([ClassicBondResult.FAILED]).
+ */
+internal fun ClassicBonder.Outcome.toClassicBondResult(): ClassicBondResult = when (this) {
+	ClassicBonder.Outcome.BONDED -> ClassicBondResult.BONDED
+	ClassicBonder.Outcome.FAILED -> ClassicBondResult.FAILED
+}

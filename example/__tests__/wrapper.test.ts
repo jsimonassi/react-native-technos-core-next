@@ -2,13 +2,15 @@
  * Testa o wrapper real (`src/index.ts`) sobre um TurboModule falso. O nome do pacote aponta para o mock no Jest, então
  * o wrapper é importado pelo caminho profundo, que aponta para o arquivo real.
  */
-import { TechnosCore, TechnosEvents, deletedCategory } from "react-native-technos-core-next/src/index";
+import { TechnosCore, TechnosEvents, deletedCategory, errorCodes } from "react-native-technos-core-next/src/index";
 import { groupSavedItemsByCategory } from "react-native-technos-core-next/src/utils/savedData";
 
 jest.mock("react-native-technos-core-next/src/specs/NativeCoreNext", () => ({
 	__esModule: true,
 	default: {
 		deletedSavedData: jest.fn(),
+		initialize: jest.fn(() => Promise.resolve()),
+		initSMASDK: jest.fn(() => Promise.resolve()),
 		pairDevice: jest.fn(() => Promise.resolve()),
 		getLastPairedDevice: jest.fn(() => Promise.resolve(null)),
 		getLogs: jest.fn(() => Promise.resolve([])),
@@ -19,6 +21,8 @@ jest.mock("react-native-technos-core-next/src/specs/NativeCoreNext", () => ({
 
 interface FakeNative {
 	deletedSavedData: jest.Mock;
+	initialize: jest.Mock;
+	initSMASDK: jest.Mock;
 	pairDevice: jest.Mock;
 	getLastPairedDevice: jest.Mock;
 	getLogs: jest.Mock;
@@ -93,6 +97,12 @@ describe("TechnosCore (repasse ao nativo)", () => {
 		await expect(TechnosCore.getLastPairedDevice()).resolves.toEqual(saved);
 	});
 
+	it("initCRPSDK é só um alias do initialize nativo (o app Condor usa esse nome)", async () => {
+		await expect(TechnosCore.initCRPSDK()).resolves.toBeUndefined();
+		expect(native().initialize).toHaveBeenCalledTimes(1);
+		expect(native().initSMASDK).not.toHaveBeenCalled();
+	});
+
 	it("setLogLevel manda o número do nível", () => {
 		TechnosCore.setLogLevel(TechnosCore.logLevels.WARN);
 		expect(native().setLogLevel).toHaveBeenCalledWith(2);
@@ -102,6 +112,13 @@ describe("TechnosCore (repasse ao nativo)", () => {
 		const handler = jest.fn();
 		TechnosEvents.onBatteryStatus(handler);
 		expect(native().onBatteryStatus).toHaveBeenCalledWith(handler);
+	});
+
+	it("expõe o código do vínculo Bluetooth clássico, que só sai em onError", () => {
+		expect(errorCodes.CLASSIC_BOND_FAILED).toBe("CLASSIC_BOND_FAILED");
+		expect(TechnosCore.errorCodes.CLASSIC_BOND_FAILED).toBe("CLASSIC_BOND_FAILED");
+		// Treze códigos da sessão e cinco do host.
+		expect(Object.keys(errorCodes)).toHaveLength(18);
 	});
 
 	it("mantém as constantes do Core atual", () => {

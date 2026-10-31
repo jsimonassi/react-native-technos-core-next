@@ -1,8 +1,9 @@
 # App de exemplo
 
 App React Native 0.81.4 (a mesma versão do app Mormaii) para validar o `react-native-technos-core-next` com o relógio
-de verdade. É o equivalente ao `examples/basic` do Core atual, reduzido ao escopo da PoC: Mormaii fitGPS e Mormaii Life
-Ultra GPS (iDO, funções básicas), Android e iPhone ([Rodar no iPhone](#rodar-no-iphone)); o mesmo JS nos dois.
+de verdade. É o equivalente ao `examples/basic` do Core atual, reduzido ao escopo da PoC: Mormaii fitGPS, Mormaii Life
+Ultra GPS (iDO, funções básicas) e Condor Reebok (CRP, fase 1), Android e iPhone ([Rodar no iPhone](#rodar-no-iphone));
+o mesmo JS nos dois.
 
 A biblioteca é ligada da raiz do repositório, sem cópia em `node_modules`: `react-native.config.js` (autolinking),
 `metro.config.js` (`watchFolders`/`extraNodeModules`), `tsconfig.json` (`paths`) e `jest.config.js`
@@ -20,9 +21,11 @@ A biblioteca é ligada da raiz do repositório, sem cópia em `node_modules`: `r
   cd ../../technos-watch-protocol && ./gradlew publishToMavenLocal
   ```
 
-- Um Mormaii fitGPS ou Life Ultra GPS carregado. Feche o app Mormaii em outros celulares por perto: um periférico BLE já
-  conectado em geral para de anunciar e não aparece no scan. Com o Life Ultra GPS, desfaça o pareamento no app Mormaii
-  de produção (ou force a parada dele) antes de testar, para os dois apps não disputarem o relógio.
+- Um Mormaii fitGPS, Life Ultra GPS ou Condor Reebok carregado. Feche o app Mormaii (ou o Condor) em outros celulares
+  por perto: um periférico BLE já conectado em geral para de anunciar e não aparece no scan. Com o Life Ultra GPS,
+  desfaça o pareamento no app Mormaii de produção (ou force a parada dele) antes de testar, para os dois apps não
+  disputarem o relógio; com o Condor Reebok, o mesmo no app Condor (roteiro em
+  [Checklist com o Condor Reebok](#checklist-com-o-condor-reebok-crp)).
 
 ## Rodar
 
@@ -148,7 +151,8 @@ não espera por ele para inicializar.
 
 **Conexão.** Permissões; situação do `initialize()`; estado (`state` numérico, `sessionState` e fase do handshake);
 último erro; `Disconnect` (desconecta e mantém o pareamento); `Forget` (UNBIND quando o modelo suporta, nunca no Life
-Ultra GPS; apaga pareamento e histórico); `Reconnect last` (`getLastPairedDevice` + `startPairingAttempt`);
+Ultra GPS, `F8` no Condor Reebok, que no Android também tira o relógio dos Ajustes de Bluetooth; apaga pareamento e
+histórico); `Reconnect last` (`getLastPairedDevice` + `startPairingAttempt`);
 `isConnected()`; `Scan`/`Stop` (7 s) com a lista
 `{name, bleName, deviceId, rssi}`; toque num relógio = `pairDevice`, com spinner até resolver ou rejeitar. Cartões
 Relógio (`getDeviceInfo` + `getFirmwareInfo`), Bateria, Hora (`setTime`) e Passos de hoje (`refreshSteps`).
@@ -160,7 +164,7 @@ confirmar o envio dos dias anteriores (`deletedSavedData`). `Sono` = `getHistory
 
 **Log.** Entradas de `onLog`, a mais nova embaixo, até 2000 (o tamanho do anel nativo; ao abrir, o app carrega o
 que o nativo já tinha com `getLogs`). Filtro por texto (tag, mensagem, hex), nível mínimo, "Hex dos frames",
-"Só TX/RX", `Clear` (JS e nativo), `Recarregar`, `Export`, `Share` e o nível do log nativo (`setLogLevel`).
+"Só pacotes" (`TX`, `RX` e `READ`, as leituras GATT do Condor Reebok), `Clear` (JS e nativo), `Recarregar`, `Export`, `Share` e o nível do log nativo (`setLogLevel`).
 
 ## Exportar e copiar o log
 
@@ -181,8 +185,8 @@ que o nativo já tinha com `getLogs`). Filtro por texto (tag, mensagem, hex), n�
    Se o caminho mostrado começar com `/data/user/0/` (aparelho sem armazenamento externo), use o comando `run-as`
    que o app mostra: `adb pull` não lê a área interna do app sem root.
 4. A gravação de frames vira fixture real no Repo 1, em
-   `technos-watch-protocol/fixtures/real/fitgps/<fw>/<cenário>.jsonl` (ex.: `fitgps/0.2.1/pair-battery-version.jsonl`;
-   formato e nomes em `docs/fixtures.md` do Repo 1). Um cenário por gravação: `Export` antes de cada `Clear` (o `Clear`
+   `technos-watch-protocol/fixtures/real/<perfil>/<fw>/<cenário>.jsonl` (ex.: `fitgps/0.2.1/pair-battery-version.jsonl`,
+   `condorreebok/MOY-VS02-2.0.0/pair-battery-firmware-sync.jsonl`; formato e nomes em `docs/fixtures.md` do Repo 1). Um cenário por gravação: `Export` antes de cada `Clear` (o `Clear`
    apaga o anel e a gravação), e `Clear` antes do cenário seguinte.
    - Copie **só o `frames-*.jsonl` mais recente** de cada cenário. Os exports são cumulativos: cada um traz tudo desde
      o último `Clear`, e o anterior é prefixo exato dele (na gravação de 2026-10-29, `frames-20261029-082857.jsonl` é
@@ -239,6 +243,46 @@ O que a primeira gravação com o relógio (2026-10-29) já respondeu está em
 [`../docs/transporte-android.md`](../docs/transporte-android.md#o-que-a-gravação-do-fitgps-mostrou); o que ainda
 falta testar no aparelho, no `docs/pendencias.md` do Repo 1.
 
+## Checklist com o Condor Reebok (CRP)
+
+O driver CRP do Repo 1 foi escrito a partir da SDK CRP decompilada e da captura HCI do app Condor de produção pareando o
+P85 (`docs/protocolo-crp.md` de lá); nunca falou com o relógio por este app: este roteiro é a primeira validação.
+Antes de começar: o Condor de produção desconectado do relógio (ou parado), `Clear` na aba Log, "Hex dos frames"
+ligado, relógio perto e carregado.
+
+### No Android
+
+| # | Passos | Esperado |
+|---|---|---|
+| C1 | Conexão → `Scan`. | A lista mostra `Condor Reebok`, `P85 · condorreebok` (o `bleName` é o nome anunciado, que começa com `P85`), o MAC e o RSSI. No log, `BleScanner/start … without filters (a profile accepts name prefixes)`. Se não aparecer, anote o nome da linha `BleScanner/onScanResult`. |
+| C2 | Tocar no `Condor Reebok`. | O estado passa por `CONNECTING`, `CONFIGURING`, `HANDSHAKING · VERSION` e termina em `Conectado (2)` `READY`, sem confirmação no relógio. No log: `enableNotifications` de `fee3`, `2a37`, `fee1` e `2a19` (nesta ordem; um WARN numa das três últimas não é falha), `requestMtu requested=512 effective=<n>` (esperado 517: o relógio abre a troca de MTU; anote), `READ` de `2a29` (`MOYOUNG-V2`), `TX` `5A/00`, `B7/0E`, `BB/16` e, 250 ms depois do `READY`, `31` e `BB/07` (hora e fuso). Nenhum `AndroidGattTransport/write` com status de erro. |
+| C3 | Logo depois do `READY`. | O diálogo de pedido de pareamento do Android, com o P85: aceitar. No log, `ClassicBonder/request`, `createBond attempt 1 … started=true` e `onBondStateChanged … 11 -> 12`; depois o relógio passa a tocar chamadas e música (o Android abre os perfis sozinho). Se a primeira tentativa falhar (no HCI do app Condor ela falhou antes do diálogo), o diálogo aparece de novo sozinho em 1,5 s. Anote se veio o WARN de reserva (`createBond(TRANSPORT_BREDR) by reflection failed`). |
+| C4 | Repetir com `Forget` + `Scan` + pareamento, recusando o diálogo nas duas vezes. | "Último erro: `CLASSIC_BOND_FAILED` em `classicBond`", com a dica de parear de novo; o estado continua `Conectado (2)` e os comandos funcionam. Nenhum diálogo a mais até um pareamento novo. |
+| C5 | Cartão Bateria → `Ler`. Repetir com o relógio no carregador. | A porcentagem da tela do relógio e `charging false`. No carregador, `charging true` e a porcentagem certa (regra "acima de 100 = carregando", ainda não confirmada: anote o hex do `READ` de `2a19`). Sem tocar em nada, um `onBatteryStatus` por minuto (o relógio avisa sozinho). |
+| C6 | Cartão Relógio → `Ler`. | Firmware `MOY-VS02-2.0.0` e `bleVersion` `MOYOUNG-V2` no `onDeviceInfo`; `onFirmwareInfo` com `braceletType 0 · platformCode 0`. |
+| C7 | Cartão Hora → `Set time` (com a hora do celular alguns minutos à frente, como no A5). Depois trocar o formato 12/24 h no celular. | "Hora enviada" e o relógio mostra a mesma hora. O formato 12/24 h do relógio não muda (fica para a fase 2). |
+| C8 | Andar um pouco olhando o cartão Passos de hoje. | O total sobe sozinho, no máximo uma vez a cada 2 s (`onPedometer` sem pedido), com passos, kcal e metros iguais aos da tela do relógio. |
+| C9 | Dados → `Sync`; depois `Passos` e `Sono`. | A barra chega a 100%. `Passos` lista hoje (e ontem, se o relógio tiver passos de ontem) com os totais da tela. No log: `READ` de `fee1`, `TX` `59/00` a `59/03`, `33/01` (pode ficar sem resposta: anote) e `32`. `Sono` responde `NO_DATA` sem uma noite; depois de dormir com o relógio, a noite com início, fim e estágios (anote os totais da tela). |
+| C10 | Bluetooth do celular desligado e religado; depois sair do alcance e voltar. | Volta a `Conectado (2)` sozinho, com `HANDSHAKING · VERSION`, sem diálogo de pareamento (o vínculo clássico já existe: `Classic bond with … already exists` no log). |
+| C11 | `Forget`. | `Desconectado (0)` e "Último pareado: nenhum"; no log, `TX` `F8` e `ClassicBonder/remove … returned true`; o relógio some de Ajustes → Bluetooth do Android. Um pareamento novo pede o diálogo de novo. |
+| C12 | `Export` depois de cada cenário. | Copie o `frames-*.jsonl` mais recente para `technos-watch-protocol/fixtures/real/condorreebok/MOY-VS02-2.0.0/<cenário>.jsonl` (as leituras saem como `"dir":"READ"`); ele roda no `CrpRealFixturesReplayTest` do Repo 1. **Nunca** o `logs-*.jsonl` (tem o MAC). |
+
+### Condor Reebok no iPhone
+
+Os mesmos itens, com estas diferenças:
+
+| Item | No iPhone |
+|---|---|
+| Antes | Se o Condor iOS já pareou este relógio neste iPhone, esqueça o P85 em Ajustes → Bluetooth antes (senão pode vir `PAIRING_REMOVED`). |
+| C1, C2 | UUID na lista. No log, `CentralTransport/connect … options=…TransportBridging…=true` (o `connect` do P85 pede transport bridging, como a SDK iOS CRP) e as linhas `discoverServices service=… characteristics=[…]`: anote as propriedades do `fee2` (esperado só `writeWithoutResponse`), o `requestMtu requested=512 effective=<n>` e **se o iOS mostrou um pedido de pareamento** ao conectar. |
+| C3, C4 | Nenhum diálogo e nenhum `onError`: o log traz o WARN `IosCoreHost/requestClassicBond … pair calls in Settings > Bluetooth`. Anote se o relógio aparece em Ajustes → Bluetooth depois do `READY` e se as chamadas funcionam depois de parear lá. |
+| C11 | O `F8` sai igual; o relógio continua em Ajustes → Bluetooth (o log traz a dica `IosCoreHost/removeClassicBond … forget the watch in Settings > Bluetooth`): esqueça à mão. |
+| C12 | `Export` e `Compartilhar arquivo` em vez do `adb pull` (cabeçalho com `platform` `ios`). |
+
+Registre os resultados nas caixas da seção 7 do [`docs/pendencias.md`](../docs/pendencias.md#7-condor-reebok-crp), no
+[`docs/ios-pendente.md`](../docs/ios-pendente.md#pendências) (iPhone) e, para o protocolo, na seção "Condor Reebok
+(CRP)" do `docs/pendencias.md` do Repo 1.
+
 ## Verificações sem relógio
 
 ```sh
@@ -275,6 +319,10 @@ __tests__/                   # Jest
   em 60 s (90 s no Life Ultra GPS). Tente de novo; se repetir, `Forget` e reinicie o relógio. No Life Ultra GPS, uma
   reconexão com `HANDSHAKE_FAILED` quer dizer que o relógio se diz desvinculado (`pairFlag` 0): pareie de novo.
 - **`NOT_READY` nos botões.** O estado não é `Conectado (2)`.
+- **Condor Reebok: `CLASSIC_BOND_FAILED` no "Último erro".** O diálogo de pareamento do Android foi recusado duas vezes
+  (ou não foi respondido em 45 s cada). O relógio continua conectado pelo BLE, mas sem chamadas e música; o app só pede
+  de novo num pareamento novo (`Forget` e toque no relógio). Um `Forget` com o diálogo aberto cancela o pedido sem esse
+  erro.
 - **`Passos` volta vazio.** Rode o `Sync` antes: `getHistoryPedometer` lê só o histórico local.
 - **iPhone: `pod install` para com "Falta ios/Frameworks/TechnosWatchProtocol.xcframework".** Rode
   `../ios/scripts/sync-xcframework.sh --build` na raiz do repositório e repita.

@@ -16,11 +16,15 @@ Guia curto para agentes e para quem chega agora. O que a biblioteca faz e como c
   os eventos e a ordem evento/`resolve`, as rejeições, o `NO_DATA`, o pareamento salvo, o FGS do sync, a reconexão
   automática e o ciclo de vida do módulo moram no `CoreBridge` (`:bridge`). Se a mudança mexe em algum desses, ela vai
   para lá.
-- Escopo da PoC: famílias SMA (Mormaii fitGPS) e iDO (Mormaii Life Ultra GPS, só as funções básicas), no Android e no
-  iOS (o iOS rodou num iPhone com os dois relógios em 2026-10-30, em Release, sem reconexão, segundo plano nem
-  restauração; [`docs/ios-pendente.md`](docs/ios-pendente.md#o-que-o-iphone-mostrou-2026-10-30)).
-  Os perfis, os nomes do scan, os UUIDs e os CCCD vêm do Repo 1 (`Profiles.all`); nada aqui é escrito por família.
-  Fora: DFU, notificações, chamadas, outras famílias e modelos, CI e publicação.
+- Escopo da PoC: famílias SMA (Mormaii fitGPS), iDO (Mormaii Life Ultra GPS, só as funções básicas) e CRP (Condor
+  Reebok, nome `P85`, fase 1: pareamento, reconexão, esquecer, bateria, firmware, hora, passos e sono), no Android e no
+  iOS (o iOS rodou num iPhone com os dois primeiros relógios em 2026-10-30, em Release, sem reconexão, segundo plano nem
+  restauração; [`docs/ios-pendente.md`](docs/ios-pendente.md#o-que-o-iphone-mostrou-2026-10-30); o Condor Reebok ainda
+  não rodou com o relógio). Os perfis, os nomes do scan, os UUIDs e os CCCD vêm do Repo 1 (`Profiles.all`); nada aqui é
+  escrito por família. O host lê só quirks de plataforma do perfil: `bleNamePrefixes` (scan Android sem filtro),
+  `classicBond` (quem decide é o `CoreBridge`; o host cria e remove o vínculo BR/EDR, `ble/ClassicBonder` no Android,
+  "não suportado" no iOS) e `iosTransportBridging` (opção do `connect` no iOS). Fora: DFU, notificações, chamadas (além
+  do vínculo clássico), atividades, outras famílias e modelos, CI e publicação.
 - O `TechnosWareCore` e o app Mormaii são só referência de leitura; cite-os (`arquivo:linha`), não mude nada lá.
 
 ## Dependência do Repo 1 (Maven local)
@@ -34,7 +38,7 @@ cd ../technos-watch-protocol && ./gradlew check publishToMavenLocal
 cd ../react-native-technos-core-next/example/android && ./gradlew --refresh-dependencies :app:assembleDebug
 ```
 
-O Repo 1 tem dois módulos: `:protocol` (sessão, domínio, protocolos SMA e iDO) e `:bridge` (o contrato JS comum e o
+O Repo 1 tem dois módulos: `:protocol` (sessão, domínio, protocolos SMA, iDO e CRP) e `:bridge` (o contrato JS comum e o
 `CoreBridge`, que os dois hosts usam para cada método JS). O `publishToMavenLocal` publica os dois para o Android. O iOS
 usa o XCFramework que sai do `:bridge` (`bridge/build/XCFrameworks/release/`), copiado para `ios/Frameworks/` (não
 versionado) por `ios/scripts/sync-xcframework.sh` (`--build` gera antes no Repo 1); sem ele o `pod install` para com a
@@ -109,12 +113,14 @@ formato de fixture do Repo 1) e `logs-<carimbo>.jsonl` (o anel de 2000 entradas)
 adb pull /storage/emulated/0/Android/data/br.com.grupotechnos.corenext.example/files/corenext ./corenext-export
 ```
 
-A gravação de frames vira fixture real do Repo 1 em `fixtures/real/<perfil>/<fw>/<cenário>.jsonl` (`fitgps` ou
-`lifeultragps`; formato no
-`docs/fixtures.md` de lá). Um cenário por gravação: `Export` antes de cada `Clear` (o `Clear` apaga o anel e a
+A gravação de frames vira fixture real do Repo 1 em `fixtures/real/<perfil>/<fw>/<cenário>.jsonl` (`fitgps`,
+`lifeultragps` ou `condorreebok`, ex.: `fixtures/real/condorreebok/MOY-VS02-2.0.0/<cenário>.jsonl`; as leituras GATT
+saem como `"dir":"READ"`; formato no `docs/fixtures.md` de lá). Um cenário por gravação: `Export` antes de cada `Clear` (o `Clear` apaga o anel e a
 gravação). Os exports são cumulativos (o anterior é prefixo do seguinte): copie só o `frames-*.jsonl` mais recente.
-**Nunca** versione `logs-*.jsonl` nem a pasta `corenext-export/`: o log tem o MAC do relógio. Quem os ignora é o
-`.gitignore` da raiz, e ele só protege um clone se estiver versionado: `git ls-files .gitignore` tem de imprimir o
+**Nunca** versione `logs-*.jsonl` nem a pasta `corenext-export/`: o log tem o MAC do relógio. Uma captura HCI do Android
+(`btsnoop_hci.log`) também tem o MAC e texto pessoal: fica fora de qualquer repositório; a fixture de referência sai dela
+pelo `scripts/btsnoop2jsonl.py` do Repo 1, com redação. Quem os ignora (`corenext-export/`, `logs-*.jsonl` e
+`btsnoop_hci.log*` em qualquer pasta) é o `.gitignore` da raiz, e ele só protege um clone se estiver versionado: `git ls-files .gitignore` tem de imprimir o
 nome. Se não imprimir, ele (e o `.editorconfig`) entra no próximo commit, antes de qualquer `git add -A`.
 
 ## Contrato (mudar com cuidado)
@@ -135,7 +141,8 @@ Do lado nativo, o host também cumpre o contrato do Repo 1: `Transport` (um `onD
 com link aberto ou pendente; Bluetooth desligado entrega só `onBluetoothStateChanged(false)`, nenhum `onDisconnected`,
 e o `disconnect()` seguinte não emite nada; eventos em ordem; regra no `ble/LinkLifecycle` de cada plataforma) e
 `SampleStore`; e o do `CoreBridge`: `CoreHost` (o `AndroidCoreHost` e o `IosCoreHost`, thread-safe e sem lançar, salvo
-`exportLogs`), `CoreEventSink` (o módulo de cada plataforma, que se liga com `attach` no primeiro método JS e só chama
+`exportLogs`; cada `requestClassicBond` responde exatamente uma vez por `CoreBridge.onClassicBondResult`, de qualquer
+thread), `CoreEventSink` (o módulo de cada plataforma, que se liga com `attach` no primeiro método JS e só chama
 `invalidate`/`onHostResume` depois disso) e `CoreCompletion` (o `PromiseCompletion` de cada plataforma; no iOS, todo
 valor passa pelo `FoundationConverter`). O `WatchSessionListener` é o do `CoreBridge` (um callback terminal por
 `requestId`; o `RequestRegistry` de lá nunca usa `-1`).
@@ -150,12 +157,12 @@ da ponte; o `br.com.grupotechnos.watch.bridge` do Repo 1 é o controlador.
 | Pacote | Pode depender de | Quem liga |
 |---|---|---|
 | raiz (`CoreGraph`, `AndroidCoreHost`, `NativeCoreNextModule`, `NativeCoreNextPackage`) | `ble/`, `bridge/`, `store/`, `log/`, Repo 1 (`:bridge` e `:protocol`), Android SDK, `react-android` | — (é o ponto de montagem) |
-| `ble/` | Repo 1 (`transport`, `profile`, `log`), Android SDK | `CoreGraph` |
+| `ble/` | Repo 1 (`transport`, `profile`, `log`), Android SDK (o `ClassicBonder` devolve o próprio `Outcome`; a conversão para o `ClassicBondResult` do `:bridge` fica no `AndroidCoreHost.kt`) | `CoreGraph` |
 | `bridge/` | `react-android`, Repo 1 (`CoreCompletion` do `:bridge`) | `NativeCoreNextModule` |
 | `store/` | Repo 1 (`session.SampleStore`, `domain`, `log`), Android SDK, `org.json` | `CoreGraph` |
 | `log/` | Repo 1 (`log`), Android SDK, `org.json` | `CoreGraph` |
 
-Nenhum pacote fala o protocolo SMA nem decide o que um método JS faz: as duas coisas moram no Repo 1. Público para
+Nenhum pacote fala o protocolo de um fabricante nem decide o que um método JS faz: as duas coisas moram no Repo 1. Público para
 quem consome a biblioteca é só o que `src/index.ts` exporta (e o mock `src/__mocks__/`); as classes Kotlin são
 detalhe de implementação, mesmo as que estão `public` por exigência do RN (o módulo e o pacote).
 
@@ -201,10 +208,10 @@ com teste em `ios/Tests/`; o host inteiro é testado com as gravações reais do
 |---|---|
 | método, evento, payload, código de erro, comportamento visto pelo JS | [`docs/api-js.md`](docs/api-js.md) + TSDoc do spec/wrapper; a regra mora no `CoreBridge` (Repo 1: KDoc, `docs/arquitetura.md` seção 13, ADR 21, golden) |
 | quem faz o quê, o que mora no `CoreBridge` e o que fica no host, ciclo de vida, threading, FGS, reconexão automática | [`docs/arquitetura.md`](docs/arquitetura.md) |
-| GATT, fila, MTU, CCCD, write type, autoConnect, Bluetooth on/off | [`docs/transporte-android.md`](docs/transporte-android.md) |
+| GATT, fila, MTU, CCCD, write type, autoConnect, scan, vínculo Bluetooth clássico, Bluetooth on/off | [`docs/transporte-android.md`](docs/transporte-android.md) |
 | host iOS: peça, decisão, limite, algo validado ou descoberto no iPhone | [`docs/ios-pendente.md`](docs/ios-pendente.md) ("iOS: estado e pendências"), o README da pasta em `ios/CoreNext/` e, se mudou como rodar, [`ios/README.md`](ios/README.md) |
 | pendência do host ou da integração com o app Mormaii (watchdog do sync, polling, `deviceId`, eventos sem equivalente) | [`docs/pendencias.md`](docs/pendencias.md) |
 | como rodar (Android ou iPhone), permissões, abas, checklist com o relógio | [`example/README.md`](example/README.md) |
 | arquivos do `src/` | [`src/README.md`](src/README.md) |
-| hipótese do protocolo confirmada ou derrubada no relógio | `docs/decisoes.md` e `docs/protocolo-sma.md` do Repo 1 |
+| hipótese do protocolo confirmada ou derrubada no relógio | `docs/decisoes.md` e o `docs/protocolo-<família>.md` do Repo 1 (`sma`, `ido`, `crp`) |
 | o que falta validar com o relógio | `docs/pendencias.md` do Repo 1 |

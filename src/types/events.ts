@@ -14,9 +14,9 @@ export interface ScannedDeviceEvent {
 	name: string;
 	deviceId: string;
 	rssi: number;
-	/** Nome de advertising (ex.: `"Mormaii_fitGPS"`). Novo. */
+	/** Nome de advertising (ex.: `"Mormaii_fitGPS"`, `"P85"` no Condor Reebok). Novo. */
 	bleName: string;
-	/** Id do perfil no módulo de protocolo (ex.: `"fitgps"`). Novo. */
+	/** Id do perfil no módulo de protocolo (ex.: `"fitgps"`, `"condorreebok"`). Novo. */
 	profileId: string;
 }
 
@@ -25,7 +25,10 @@ export interface ConnectStateChangedEvent {
 	state: number;
 	/** Estado detalhado da sessão (`DISCONNECTED`, `CONNECTING`, `CONFIGURING`, `HANDSHAKING`, `READY`, `SYNCING`, `RECONNECTING`, `BLUETOOTH_OFF`). Novo. */
 	sessionState: string;
-	/** Subetapa do handshake (`"BIND"`, `"LOGIN"`) ou `null`. Novo. */
+	/**
+	 * Subetapa do handshake ou `null`. Novo. `"BIND"` e `"LOGIN"` no fitGPS e no Life Ultra GPS; `"VERSION"` no Condor
+	 * Reebok (leitura da versão do protocolo, no pareamento e na reconexão; não há confirmação no relógio).
+	 */
 	phase: string | null;
 }
 
@@ -35,6 +38,7 @@ export interface DeviceInfoEvent {
 	profileId: string;
 	bleName: string;
 	firmware: string;
+	/** Versão do protocolo BLE, quando o relógio informa. No Condor Reebok, o texto lido em 2A29 (`"MOYOUNG-V2"`). */
 	bleVersion: string | null;
 }
 
@@ -46,9 +50,16 @@ export interface FirmwareInfoEvent {
 	deviceId: string;
 }
 
-/** `onBatteryStatus`, igual ao `TechnosBatteryStatus` do Core atual. */
+/**
+ * `onBatteryStatus`, igual ao `TechnosBatteryStatus` do Core atual. Vem de `getBatteryStatus` ou, no Condor Reebok,
+ * também sozinho (o relógio avisa cerca de uma vez por minuto).
+ */
 export interface BatteryStatusEvent {
 	percentage: number;
+	/**
+	 * `true` carregando. Só o Condor Reebok informa: uma leitura acima de 100 quer dizer carregando, com nível = valor -
+	 * 100 (regra do Core atual). No fitGPS e no Life Ultra GPS é sempre `false`.
+	 */
 	charging: boolean;
 	/** @deprecated Use `percentage`. Mantido por compatibilidade (`"85%"`). */
 	battery: string;
@@ -131,7 +142,10 @@ export interface ErrorEvent {
 	/** Um dos `errorCodes`. */
 	code: string;
 	message: string;
-	/** Método do módulo que originou o erro (ex.: `"getBatteryStatus"`), ou `null`. */
+	/**
+	 * Método do módulo que originou o erro (ex.: `"getBatteryStatus"`), ou `null`. `"classicBond"` no
+	 * `CLASSIC_BOND_FAILED`, que nasce no nativo quando a conexão fica pronta, e não num método JS.
+	 */
 	method: string | null;
 }
 
@@ -142,8 +156,11 @@ export interface LogEvent {
 	level: "DEBUG" | "INFO" | "WARN" | "ERROR";
 	tag: string;
 	message: string;
-	/** Preenchido só para pacotes GATT. */
-	dir: "TX" | "RX" | null;
+	/**
+	 * Preenchido só para pacotes GATT: `"TX"` escrito pelo app, `"RX"` notificação do relógio, `"READ"` valor devolvido
+	 * por uma leitura GATT (no Condor Reebok, versão, firmware, bateria e passos do dia).
+	 */
+	dir: "TX" | "RX" | "READ" | null;
 	/** Bytes do pacote em hex maiúsculo, só para pacotes GATT. */
 	hex: string | null;
 }

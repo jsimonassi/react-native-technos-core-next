@@ -13,12 +13,13 @@ no Repo 1, consumido como AAR (`br.com.grupotechnos.watch:bridge:0.1.0`, que tra
 |---|---|
 | `NativeCoreNextModule.kt` | Estende o `NativeCoreNextSpec` gerado pelo codegen. Cada método JS é uma linha que chama o método de mesmo nome do `CoreBridge`, com a Promise num `PromiseCompletion`. É o `CoreEventSink` (o `when` dos `emitOnX`); liga-se ao controlador no primeiro método JS e só chama `invalidate`/`onHostResume` depois disso. |
 | `NativeCoreNextPackage.kt` | `BaseReactPackage` encontrado pelo autolinking. |
-| `CoreGraph.kt` | Montagem do processo: `WatchSession(AndroidGattTransport, RingLogger, FileSampleStore)`, scanner, prefs, o `AndroidCoreHost` e o `CoreBridge`. Liga o scanner, o `onEntry` do log e o `BluetoothStateReceiver` aos ganchos do controlador. Sobrevive ao reload do JS. |
-| `AndroidCoreHost.kt` | O `CoreHost` do Android: permissões (`BlePermissions`), Bluetooth ligado, MAC válido (`BluetoothAdapter.checkBluetoothAddress`), scan, FGS do sync, `PairingPrefs`, cabeçalho da gravação, log em memória e `exportLogs`. Só delega. No fim do arquivo, as conversões puras para os tipos do `:bridge` (`CoreLogEntry`, `CorePairing`). |
+| `CoreGraph.kt` | Montagem do processo: `WatchSession(AndroidGattTransport, RingLogger, FileSampleStore)`, scanner, prefs, `ClassicBonder`, o `AndroidCoreHost` e o `CoreBridge`. Liga o scanner, o resultado do vínculo clássico (`onClassicBondResult`), o `onEntry` do log e o `BluetoothStateReceiver` aos ganchos do controlador; o Bluetooth ligado e a partida também retomam as remoções de vínculo pendentes do `ClassicBonder`. Sobrevive ao reload do JS. |
+| `AndroidCoreHost.kt` | O `CoreHost` do Android: permissões (`BlePermissions`), Bluetooth ligado, MAC válido (`BluetoothAdapter.checkBluetoothAddress`), scan, FGS do sync, `PairingPrefs`, cabeçalho da gravação, log em memória, `exportLogs` e o vínculo Bluetooth clássico (`hasClassicBond`, `requestClassicBond`, `removeClassicBond`, pelo `ClassicBonder`). Só delega. No fim do arquivo, as conversões puras para os tipos do `:bridge` (`CoreLogEntry`, `CorePairing`, `ClassicBondResult`). |
 
 ## Pastas
 
-- [`ble/`](ble/README.md): `BluetoothGatt`, fila GATT, scan, estado do adaptador, FGS do sync.
+- [`ble/`](ble/README.md): `BluetoothGatt`, fila GATT, scan, estado do adaptador, FGS do sync, vínculo Bluetooth
+  clássico.
 - [`bridge/`](bridge/README.md): o lado React Native da ponte (`WritableConverter`, `ReadableConverter`,
   `PromiseCompletion`).
 - [`store/`](store/README.md): histórico em JSON e último pareamento.
@@ -43,7 +44,8 @@ parar, em `docs/arquitetura.md`, "O que mora onde"). Pedido de permissão (o JS 
 ## Testes
 
 `cd example/android && ./gradlew :react-native-technos-core-next:testDebugUnitTest` (JVM, sem aparelho). Nesta pasta,
-`AndroidCoreHostTest` (o nome da permissão na mensagem e as conversões, campo a campo) e
+`AndroidCoreHostTest` (o nome da permissão na mensagem e as conversões, campo a campo, inclusive o resultado do vínculo
+clássico) e
 `DeletedSavedDataEquivalenceTest` (o `deletedSavedData` antigo do módulo, copiado sem mudança, contra
 `ReadableConverter` + `CoreBridge` sobre uma `WatchSession` de verdade, em 2.100 arrays aleatórios e três fusos). As
 regras do `CoreBridge` são testadas no Repo 1. Arquitetura completa em `docs/arquitetura.md`; transporte em

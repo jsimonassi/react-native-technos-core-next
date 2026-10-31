@@ -52,9 +52,10 @@ export type DeletedCategory = (typeof deletedCategory)[keyof typeof deletedCateg
 /**
  * Códigos de erro de `onError.code` e do `code` das Promises rejeitadas.
  *
- * Os treze primeiros vêm do módulo de protocolo (`WatchErrorCodes.kt` do `technos-watch-protocol`); os quatro
- * últimos nascem no nativo antes de a sessão ser chamada (`HostErrorCodes.kt` do `:bridge` do mesmo repositório).
- * Mudou uma das duas listas nativas, mude aqui e em `docs/api-js.md`.
+ * Os treze primeiros vêm do módulo de protocolo (`WatchErrorCodes.kt` do `technos-watch-protocol`); os cinco
+ * últimos nascem no nativo (`HostErrorCodes.kt` do `:bridge` do mesmo repositório): antes de a sessão ser chamada ou,
+ * no caso de `CLASSIC_BOND_FAILED`, num pedido ao sistema que não é da sessão. Mudou uma das duas listas nativas, mude
+ * aqui e em `docs/api-js.md`.
  */
 export const errorCodes = {
 	/** O comando exige conexão pronta e o relógio não está conectado. */
@@ -99,6 +100,14 @@ export const errorCodes = {
 	INVALID_ARGUMENT: "INVALID_ARGUMENT",
 	/** Falha de arquivo (histórico local ou exportação do log). */
 	IO_ERROR: "IO_ERROR",
+	/**
+	 * O vínculo Bluetooth clássico que o Condor Reebok usa para chamadas e música não foi criado: o usuário recusou o
+	 * diálogo do sistema ou as duas tentativas do Android acabaram. Sai só em `onError`, com `requestId` -1 e `method`
+	 * `"classicBond"` (o pedido nasce quando a conexão fica pronta, não num método JS; nenhuma Promise rejeita). A conexão
+	 * BLE continua pronta. O nativo não pede de novo até o próximo `pairDevice`. No iPhone nunca sai: o app não cria esse
+	 * vínculo (o usuário pareia em Ajustes > Bluetooth).
+	 */
+	CLASSIC_BOND_FAILED: "CLASSIC_BOND_FAILED",
 } as const;
 
 /** Um dos valores de {@link errorCodes}. */

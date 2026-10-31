@@ -15,7 +15,8 @@ import TechnosWatchProtocol
 ///   `retrievePeripherals(withIdentifiers:)` ou do `retrieveConnectedPeripherals(withServices:)`; sem nenhum, a conexão é
 ///   recusada (`NOT_FOUND`, um `onDisconnected`). `central.connect` não tem timeout no iOS: com `autoReconnect = true` ele
 ///   é a própria conexão pendente (o sistema mantém e acorda o app quando o relógio volta); com `false`, quem desiste é a
-///   sessão (`connectTimeoutMs`), com um `disconnect()`.
+///   sessão (`connectTimeoutMs`), com um `disconnect()`. As opções do connect vêm do grafo
+///   (`HostTransportDelegate.transportConnectOptions`, por quirk do perfil; `connectOptions(transportBridging:)`).
 /// - Um link que caiu (`didDisconnectPeripheral` com link aberto) sai como `onDisconnected` e não é re-armado: quem
 ///   reconecta é a sessão. Só a conexão pendente que falha sem conectar (`didFailToConnect`) é re-armada: na hora se a
 ///   tentativa esperou (o relógio apareceu e a conexão não fechou), senão com espera que dobra de 1 s até 30 s
@@ -355,8 +356,9 @@ final class CentralTransport: NSObject, HostTransport {
 		target.delegate = self
 		writeTypeWarnings.removeAll()
 		setMtu(CentralTransport.defaultMtu)
-		central?.connect(target, options: nil)
-		log(LogLevel.info, "connect", "address=\(target.identifier.uuidString) autoReconnect=\(autoReconnect) state=\(target.state.rawValue) generation=\(attemptGeneration)")
+		let options = delegate?.transportConnectOptions()
+		central?.connect(target, options: options)
+		log(LogLevel.info, "connect", "address=\(target.identifier.uuidString) autoReconnect=\(autoReconnect) state=\(target.state.rawValue) generation=\(attemptGeneration) options=\(CentralTransport.describe(options))")
 	}
 
 	private func doDisconnect() {
@@ -628,6 +630,20 @@ final class CentralTransport: NSObject, HostTransport {
 			(.read, "read"), (.write, "write"), (.writeWithoutResponse, "writeWithoutResponse"), (.notify, "notify"), (.indicate, "indicate"),
 		]
 		return names.filter { properties.contains($0.0) }.map(\.1).joined(separator: "|")
+	}
+
+	/// Opções do `central.connect` para um perfil: com `transportBridging` (o quirk `iosTransportBridging`, hoje só do
+	/// Condor Reebok), `CBConnectPeripheralOptionEnableTransportBridgingKey`, a opção que a SDK iOS CRP passa no connect
+	/// (binário `CRPSmartBand.framework` em 0xb2e60; `fase0 CON-17`): pede ao iOS que ligue o clássico (chamadas e
+	/// música) do mesmo aparelho ao link BLE. Sem o quirk, `nil` (o connect de sempre, sem opções).
+	static func connectOptions(transportBridging: Bool) -> [String: Any]? {
+		transportBridging ? [CBConnectPeripheralOptionEnableTransportBridgingKey: true] : nil
+	}
+
+	/// Opções do connect para o log, com as chaves em ordem (`none` sem opções).
+	static func describe(_ options: [String: Any]?) -> String {
+		guard let options, !options.isEmpty else { return "none" }
+		return options.keys.sorted().map { "\($0)=\(options[$0].map { "\($0)" } ?? "nil")" }.joined(separator: ",")
 	}
 
 	/// MTU ATT do link: o maior Write Command mais os 3 bytes do cabeçalho ATT.

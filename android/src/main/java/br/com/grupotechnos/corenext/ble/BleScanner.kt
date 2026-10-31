@@ -25,6 +25,11 @@ import br.com.grupotechnos.watch.protocol.transport.GattUuid
  *   NUS (anúncio com `180f`, `180a` e `00000001-…`, `logs-20261029-083254.jsonl` linha 6, ts 1793272444786), então é o
  *   filtro de nome que o acha; o de serviço fica para um relógio que anuncie. Perfil novo no Repo 1 entra no scan sem
  *   mudança aqui. Os UUIDs anunciados continuam indo para o log.
+ * - Sem filtro nenhum quando algum perfil aceita prefixo de nome (`DeviceProfile.bleNamePrefixes`; hoje só o Condor
+ *   Reebok, `P85`): o `ScanFilter` só compara o nome exato, e um nome com sufixo, espaço ou `NUL` não passaria (o Core de
+ *   produção faz `trim` e `startsWith`, `AvailableDevices.java:55-57`, e também escaneia sem filtro). A identificação
+ *   continua no `DeviceRegistry.identify`, então o fitGPS e o Life Ultra GPS saem iguais. Nesse modo, aparelhos
+ *   desconhecidos e sem nome não vão para o log, que senão encheria o anel num lugar cheio de BLE.
  * - `SCAN_MODE_LOW_LATENCY` por [SCAN_DURATION_MS] (7 s, o mesmo do Core atual, `SMAService.java:625-635`).
  * - Cada resultado passa por `DeviceRegistry.identify`; só perfis conhecidos viram [onDevice], uma vez por endereço
  *   por scan (o Core atual emite a cada anúncio).
@@ -50,6 +55,7 @@ class BleScanner(
 	private val logged = HashSet<String>()
 	private var callback: ScanCallback? = null
 	private val stopRunnable = Runnable { stop() }
+	private var unfiltered = false
 
 	/** `true` enquanto um scan está ativo. */
 	val isScanning: Boolean
@@ -104,16 +110,19 @@ class BleScanner(
 			}
 		}
 		val settings = ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build()
+		val spec = filterSpec()
 		try {
-			scanner.startScan(buildFilters(), settings, newCallback)
+			scanner.startScan(buildFilters(spec), settings, newCallback)
 		} catch (error: RuntimeException) {
 			log(LogLevel.ERROR, "start", "startScan threw ${error.javaClass.simpleName}: ${error.message}")
 			onFailure(-1, "Could not start scan: ${error.message}")
 			return
 		}
 		callback = newCallback
+		unfiltered = spec.unfiltered
 		main.postDelayed(stopRunnable, SCAN_DURATION_MS)
-		log(LogLevel.INFO, "start", "Scanning for ${SCAN_DURATION_MS} ms")
+		val mode = if (spec.unfiltered) "without filters (a profile accepts name prefixes)" else "with ${spec.names.size + spec.services.size} filters"
+		log(LogLevel.INFO, "start", "Scanning for ${SCAN_DURATION_MS} ms $mode")
 	}
 
 	private fun handle(result: ScanResult) {
@@ -123,8 +132,9 @@ class BleScanner(
 		val profile = DeviceRegistry.identify(bleName, advertisedServices)
 		if (address in seen) return
 		// Loga uma vez por combinação endereço/nome: um anúncio sem nome (só serviço) seguido do scan response com
-		// nome aparece duas vezes no log, e o segundo ainda pode virar evento.
-		if (logged.add("$address|$bleName")) {
+		// nome aparece duas vezes no log, e o segundo ainda pode virar evento. Sem filtro, só o que tem nome ou perfil.
+		val worthLogging = !unfiltered || profile != null || bleName != null
+		if (worthLogging && logged.add("$address|$bleName")) {
 			log(
 				LogLevel.DEBUG,
 				"onScanResult",
@@ -142,8 +152,9 @@ class BleScanner(
 		null
 	}
 
-	private fun buildFilters(): List<ScanFilter> {
-		val spec = filterSpec()
+	/** Lista vazia (scan sem filtro) com [FilterSpec.unfiltered]; senão um filtro por nome e um por serviço. */
+	private fun buildFilters(spec: FilterSpec): List<ScanFilter> {
+		if (spec.unfiltered) return emptyList()
 		return spec.names.map { ScanFilter.Builder().setDeviceName(it).build() } +
 			spec.services.map { ScanFilter.Builder().setServiceUuid(ParcelUuid.fromString(it)).build() }
 	}
@@ -152,16 +163,25 @@ class BleScanner(
 		logger.log(level, "BleScanner/$method", message)
 	}
 
-	/** Nomes e serviços dos filtros de scan, em Kotlin puro (testável na JVM, sem o `ScanFilter` do Android). */
-	data class FilterSpec(val names: List<String>, val services: List<String>)
+	/**
+	 * Nomes e serviços dos filtros de scan, em Kotlin puro (testável na JVM, sem o `ScanFilter` do Android).
+	 *
+	 * @property unfiltered `true` quando algum perfil aceita prefixo de nome: o scan sai sem filtro e [names] e
+	 * [services] só documentam o que os perfis anunciam.
+	 */
+	data class FilterSpec(val names: List<String>, val services: List<String>, val unfiltered: Boolean)
 
 	companion object {
 		const val SCAN_DURATION_MS = 7_000L
 
-		/** Um filtro por nome de advertising e um por serviço de candidato GATT de [profiles], sem repetição. */
+		/**
+		 * Um filtro por nome de advertising e um por serviço de candidato GATT de [profiles], sem repetição; sem filtro
+		 * nenhum se algum perfil tem `bleNamePrefixes`.
+		 */
 		fun filterSpec(profiles: List<DeviceProfile> = Profiles.all): FilterSpec = FilterSpec(
 			names = profiles.flatMap { it.bleNames }.distinct(),
 			services = profiles.flatMap { profile -> profile.gattCandidates.map { GattUuid.normalize(it.service) } }.distinct(),
+			unfiltered = profiles.any { it.bleNamePrefixes.isNotEmpty() },
 		)
 	}
 }

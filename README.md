@@ -20,9 +20,19 @@ Bluetooth ([o que ela mostrou](docs/transporte-android.md#o-que-a-gravação-do-
 pareamento com confirmação no relógio, bateria, firmware, hora e passos; a reconexão e o restante do roteiro
 ([`example/README.md`](example/README.md#checklist-com-o-life-ultra-gps-ido)) ainda não foram gravados.
 
+**Condor Reebok (família CRP, fase 1, 2026-10-31).** Pareamento só com a leitura da versão (fase `VERSION`, sem
+confirmação no relógio), reconexão, esquecer (`F8` ao relógio), bateria (com `charging` e o aviso espontâneo), firmware,
+hora, passos do dia (ao vivo pela `fee1`) e histórico de passos e sono, no Android e no iOS, com o driver próprio do
+Repo 1 sobre o protocolo Moyoung (`docs/protocolo-crp.md` de lá). O relógio também usa o Bluetooth clássico (chamadas e
+música): no Android o host pede o vínculo ao sistema depois do `READY` (diálogo do sistema; uma falha sai como
+`CLASSIC_BOND_FAILED`) e o remove no `forgetDevice`; no iPhone o app não consegue, e o `connect` pede transport
+bridging. Testado só sem o relógio (a fixture sintética do Repo 1 no simulador iOS e os testes JVM); o roteiro com o
+relógio está no [`example/README.md`](example/README.md#checklist-com-o-condor-reebok-crp).
+
 ## Início rápido
 
-Pré-requisitos: Node 20+, JDK 17, Android SDK (`ANDROID_HOME`), um Android físico e um Mormaii fitGPS ou Life Ultra GPS.
+Pré-requisitos: Node 20+, JDK 17, Android SDK (`ANDROID_HOME`), um Android físico e um Mormaii fitGPS, Life Ultra GPS ou
+Condor Reebok.
 Para o iPhone: Xcode 26, CocoaPods, Node 20+, JDK 17 e o clone do `technos-watch-protocol` ao lado deste (para gerar
 o framework do Repo 1), e um Apple ID ([`example/README.md`](example/README.md#rodar-no-iphone)).
 
@@ -38,7 +48,8 @@ npm run android         # terminal 2
 ```
 
 No app: aba Conexão → `Scan` → tocar no `fitGPS` ou no `Life Ultra GPS` → confirmar no relógio (o Life Ultra GPS sempre
-pede no primeiro pareamento) → estado `Conectado (2)`.
+pede no primeiro pareamento) → estado `Conectado (2)`. No `Condor Reebok` não há confirmação no relógio; no Android,
+aceite o pedido de pareamento do sistema que aparece logo depois (chamadas e música).
 
 No iPhone:
 
@@ -71,7 +82,8 @@ chegando pelo evento. Referência completa, payloads de exemplo e roteiro de mig
 src/                 # JS: spec do TurboModule, wrapper TechnosCore/TechnosEvents, tipos, utils, mock
 android/             # módulo Android (Kotlin): NativeCoreNextModule (casca sobre o CoreBridge), CoreGraph,
                      # AndroidCoreHost e as pastas abaixo
-  .../corenext/ble/      # BluetoothGatt, fila GATT, scan, Bluetooth on/off, serviço de sync em primeiro plano
+  .../corenext/ble/      # BluetoothGatt, fila GATT, scan, Bluetooth on/off, serviço de sync em primeiro plano,
+                         # vínculo Bluetooth clássico (Condor Reebok)
   .../corenext/bridge/   # React Native ↔ valores puros: WritableConverter, ReadableConverter, PromiseCompletion
   .../corenext/store/    # histórico local (JSON atômico) e pareamento salvo
   .../corenext/log/      # anel de log, Logcat, onLog e gravação de frames para fixture
@@ -91,12 +103,13 @@ depende.
 | [`CLAUDE.md`](CLAUDE.md) | Comandos, convenções, arquivos de contrato e quando atualizar cada doc |
 | [`docs/arquitetura.md`](docs/arquitetura.md) | Quem é dono de quê (o que mora no `CoreBridge` do Repo 1 e o que fica aqui), ciclo de vida da conexão, threading, eventos, códigos de erro |
 | [`docs/api-js.md`](docs/api-js.md) | Cada método e evento, com payload de exemplo e o equivalente no Core atual |
-| [`docs/transporte-android.md`](docs/transporte-android.md) | Fila GATT, autoConnect, MTU, CCCD, write type, Bluetooth on/off e limites conhecidos |
+| [`docs/transporte-android.md`](docs/transporte-android.md) | Fila GATT, autoConnect, MTU, CCCD, write type, scan, vínculo Bluetooth clássico, Bluetooth on/off e limites conhecidos |
 | [`docs/ios-pendente.md`](docs/ios-pendente.md) | iOS: estado e pendências (peças, decisões do CoreBluetooth, o que o primeiro teste no iPhone mostrou, o que foi verificado sem iPhone, o que falta) |
-| [`docs/pendencias.md`](docs/pendencias.md) | Pendências do host e da integração com o app Mormaii (sync de 59 s contra o watchdog de 50 s, polling de passos, `deviceId`, eventos sem equivalente) e o achado de que o Core de produção provavelmente infla os passos do fitGPS no backend |
+| [`docs/pendencias.md`](docs/pendencias.md) | Pendências do host e da integração com o app Mormaii (sync de 59 s contra o watchdog de 50 s, polling de passos, `deviceId`, eventos sem equivalente), o achado de que o Core de produção provavelmente infla os passos do fitGPS no backend e o que falta validar do Condor Reebok |
 | [`example/README.md`](example/README.md) | Rodar o exemplo no Android e no iPhone, permissões, exportar o log, checklists com os relógios |
 | [`src/README.md`](src/README.md) | Arquivos da camada JS |
 | [`ios/README.md`](ios/README.md) | O pod iOS, o XCFramework do Repo 1 (`sync-xcframework.sh`), testes no simulador e builds |
 
 O protocolo SMA (frames, CRC, handshake, catálogo de comandos) está documentado no Repo 1, em
-[`docs/protocolo-sma.md`](../technos-watch-protocol/docs/protocolo-sma.md).
+[`docs/protocolo-sma.md`](../technos-watch-protocol/docs/protocolo-sma.md); o iDO, em `docs/protocolo-ido.md`, e o CRP
+(Condor Reebok), em `docs/protocolo-crp.md`, no mesmo lugar.

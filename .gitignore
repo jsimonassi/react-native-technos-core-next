@@ -20,3 +20,5 @@ ios/.build/
 # Exports do exemplo (adb pull): o logs-*.jsonl tem o MAC do relógio e nunca vai para o git.
 corenext-export/
 logs-*.jsonl
+# Captura HCI bruta do Android (btsnoop): tem os endereços dos aparelhos e texto pessoal; fica fora de qualquer repositório.
+btsnoop_hci.log*

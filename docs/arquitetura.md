@@ -2,9 +2,13 @@
 
 Visão do Repo 2: um TurboModule fino sobre o `technos-watch-protocol` (Repo 1). Esta PoC cobre as famílias SMA
 (Mormaii fitGPS) e iDO (Mormaii Life Ultra GPS, funções básicas) no Android e, desde 2026-10-30, no iOS (testado num
-iPhone com os dois relógios no mesmo dia, sem reconexão nem segundo plano; seção [iOS](#ios)). O host não tem código por família: os
-filtros do scan saem de `Profiles.all`, e o perfil diz à sessão quais CCCD ligar (no iDO, dois), se pede MTU e o tipo de
-escrita que o driver usa (no iDO, sem resposta). O que cada método JS faz (checagens, eventos, ordem evento/`resolve`, rejeições,
+iPhone com os dois relógios no mesmo dia, sem reconexão nem segundo plano; seção [iOS](#ios)), e a família CRP (Condor
+Reebok, fase 1, ainda sem teste com o relógio nas duas plataformas). O host não tem código por família: os filtros do
+scan saem de `Profiles.all` (sem filtro quando um perfil aceita prefixo de nome, como o `P85`), e o perfil diz à
+sessão quais CCCD ligar (no iDO, dois; no CRP, quatro, três deles em outros serviços), se pede MTU e o tipo de escrita
+que o driver usa (no iDO e no CRP, sem resposta). Os dois quirks que o host lê são do CRP: `classicBond` (o
+`CoreBridge` pede ao host o vínculo Bluetooth clássico, seção [Vínculo Bluetooth clássico](#vínculo-bluetooth-clássico))
+e `iosTransportBridging` (opção do `connect` no iOS). O que cada método JS faz (checagens, eventos, ordem evento/`resolve`, rejeições,
 pareamento salvo, reconexão automática) mora no `CoreBridge` do `:bridge` do Repo 1, descrito na seção 13 do
 [`docs/arquitetura.md` de lá](../../technos-watch-protocol/docs/arquitetura.md#13-controlador-comum-corebridge); aqui
 fica a plataforma. As peças do iOS estão na seção [iOS](#ios) e em detalhe em [`ios-pendente.md`](ios-pendente.md)
@@ -19,9 +23,9 @@ fica a plataforma. As peças do iOS estão na seção [iOS](#ios) e em detalhe e
 | JS | `src/` | Wrapper `TechnosCore`/`TechnosEvents`, tipos, permissões (no app) | Nada de BLE |
 | Módulo | `NativeCoreNextModule.kt` | Uma chamada ao `CoreBridge` por método JS (a Promise num `PromiseCompletion`, o `ReadableArray` pelo `ReadableConverter`); ser o `CoreEventSink` (o `emitOnX` de cada nome); ligar-se ao controlador e desligar-se dele | Qualquer regra |
 | Controlador | Repo 1 (`CoreBridge`, `br.com.grupotechnos.watch:bridge`) | Checagens e rejeições antecipadas, `requestId` e liquidação, evento antes do `resolve`, `NO_DATA`, pareamento salvo, quando ligar o FGS, reconexão automática, fila de eventos, ciclo de vida do módulo | Plataforma |
-| Montagem | `CoreGraph.kt` | Montar a sessão, o transporte, o logger, o store, o scanner, o `AndroidCoreHost` e o `CoreBridge` uma vez por processo; ligar scanner, log e `BluetoothStateReceiver` aos ganchos do controlador | Decidir algo |
-| Plataforma | `AndroidCoreHost.kt` | O `CoreHost`: permissões, Bluetooth ligado, MAC válido, scan, FGS, `PairingPrefs`, cabeçalho da gravação, log em memória e export | Decidir quando |
-| Transporte | `ble/` | `BluetoothGatt`, fila GATT, scan, estado do adaptador, FGS do sync | Decidir quando reconectar ou desistir |
+| Montagem | `CoreGraph.kt` | Montar a sessão, o transporte, o logger, o store, o scanner, o `ClassicBonder`, o `AndroidCoreHost` e o `CoreBridge` uma vez por processo; ligar scanner, resultado do vínculo clássico, log e `BluetoothStateReceiver` aos ganchos do controlador | Decidir algo |
+| Plataforma | `AndroidCoreHost.kt` | O `CoreHost`: permissões, Bluetooth ligado, MAC válido, scan, FGS, `PairingPrefs`, cabeçalho da gravação, log em memória, export e vínculo clássico | Decidir quando |
+| Transporte | `ble/` | `BluetoothGatt`, fila GATT, scan, estado do adaptador, FGS do sync, vínculo clássico (`ClassicBonder`, fora do `Transport`) | Decidir quando reconectar, desistir ou pedir o vínculo |
 | Ponte RN | `bridge/` | `WritableConverter` (payload → `WritableMap`), `ReadableConverter` (`ReadableArray` → `List`), `PromiseCompletion` | Mapear o domínio (é o `EventMapper` do Repo 1) |
 | Persistência | `store/` | Histórico (`SampleStore`) em JSON, último pareamento | Agregação, poda |
 | Log | `log/` | Anel, Logcat, `onLog`, gravação de frames | Envio a servidor |
@@ -38,7 +42,7 @@ CoreBridge (Repo 1, :bridge) ── regras, RequestRegistry, PendingEvents, list
    │ comandos         ▲ WatchSessionListener        │ CoreHost (consultas e efeitos)
    ▼                  │                             ▼
 WatchSession (Repo 1, :protocol)             AndroidCoreHost ── BlePermissions, BleScanner, SyncForegroundService,
-   │ Transport        ▲ TransportEvents                         PairingPrefs, FrameRecorder, RingLogger
+   │ Transport        ▲ TransportEvents                         PairingPrefs, FrameRecorder, RingLogger, ClassicBonder
    ▼                  │
 AndroidGattTransport ──▶ BluetoothGatt
 (o RingLogger e o FileSampleStore são o WatchLogger e o SampleStore da sessão)
@@ -130,7 +134,7 @@ vínculo do sistema apagado no relógio, ADR 23 do Repo 1): uma tentativa por ga
 | Módulos nativos do RN | Métodos do TurboModule e, dentro deles, o método do `CoreBridge` e as consultas ao `AndroidCoreHost`. `getHistoryPedometer`, `getHistorySleep`, `exportLogs` fazem IO de arquivo pequeno aqui. |
 | Sessão (Repo 1, `Dispatchers.Default.limitedParallelism(1)`) | O `WatchSessionListener` do `CoreBridge` (e os efeitos que ele pede ao `AndroidCoreHost`: pareamento, FGS, cabeçalho da gravação), `SampleStore` (`FileSampleStore`), `WatchLogger`. Emite eventos JS daqui. |
 | "corenext-gatt" (`HandlerThread`) | Todo o `AndroidGattTransport` e os callbacks do `BluetoothGatt` (o `connectGatt` recebe esse `Handler`); o `onBluetoothTurnedOn` do controlador. |
-| Main | Callbacks de scan (`BleScanner`, que chamam `onScannedDevice`/`onScanFailed`), `BroadcastReceiver`, `onHostResume`. |
+| Main | Callbacks de scan (`BleScanner`, que chamam `onScannedDevice`/`onScanFailed`), `BroadcastReceiver` (inclusive o de `ACTION_BOND_STATE_CHANGED` do `ClassicBonder`, que chama `onClassicBondResult`), `onHostResume`. |
 
 O `AndroidCoreHost` é chamado de qualquer uma delas; as peças sob ele já são thread-safe (KDoc da classe).
 
@@ -169,7 +173,7 @@ Todo comando que fala com o relógio segue o mesmo caminho, no `CoreBridge`:
 | `pairDevice(id, name)` | `pair` | `onConnectStateChanged` | `READY` (`onCompleted`) |
 | `startPairingAttempt(id, name)` | `reconnect` | `onConnectStateChanged` | na hora (a reconexão pode demorar indefinidamente) |
 | `disconnectCurrentDevice()` | `disconnect(forget = false)` | `onConnectStateChanged` | `onCompleted` |
-| `forgetDevice()` | `disconnect(forget = true)` + apaga `PairingPrefs` | `onConnectStateChanged` | `onCompleted` |
+| `forgetDevice()` | `disconnect(forget = true)` (no CRP, o `F8` ao relógio) + apaga `PairingPrefs`; com `Quirks.classicBond`, `removeClassicBond` antes de apagar de novo | `onConnectStateChanged` | `onCompleted` |
 | `getDeviceInfo()` | `readDeviceInfo` | `onDeviceInfo` | `onDeviceInfo` |
 | `getFirmwareInfo()` | `readDeviceInfo` | `onFirmwareInfo` | `onDeviceInfo` |
 | `getBatteryStatus()` | `readBattery` | `onBatteryStatus` | `onBattery` |
@@ -183,7 +187,10 @@ Todo comando que fala com o relógio segue o mesmo caminho, no `CoreBridge`:
 
 Eventos espontâneos (o relógio avisa que os dados mudaram, `requestId = -1`) saem sem Promise: `onPedometer`;
 `onDeviceInfo` espontâneo emite `onDeviceInfo` e `onFirmwareInfo`. O fitGPS 0.2.1 não mandou nenhum aviso desses na
-gravação de 2026-10-29: passos ao vivo precisam de `refreshSteps()` periódico ([`pendencias.md`](pendencias.md)).
+gravação de 2026-10-29: passos ao vivo precisam de `refreshSteps()` periódico ([`pendencias.md`](pendencias.md)). O
+Condor Reebok avisa sozinho: a bateria (`2a19`, cerca de uma vez por minuto) vira `onBatteryStatus`, e os passos do dia
+(`fee1`, a cada passo andando) viram `onPedometer`, no máximo um a cada 2 s (a sessão junta os avisos num comando
+interno da fila). O `onError` `CLASSIC_BOND_FAILED` também sai sem Promise (`method: "classicBond"`).
 
 ### `deletedSavedData`
 
@@ -202,7 +209,8 @@ Os da sessão (`WatchErrorCodes` do Repo 1): `NOT_READY`, `UNSUPPORTED_DEVICE`, 
 `GATT_NOT_SUPPORTED`, `HANDSHAKE_FAILED`, `TIMEOUT`, `PROTOCOL`, `NO_DATA`, `TRANSPORT`, `DISCONNECTED`,
 `PAIRING_REMOVED` (o telefone guarda um vínculo Bluetooth que o relógio apagou; hoje só o host iOS o detecta, ADR 23 do
 Repo 1), `CANCELLED` e `BUSY` (este reservado: a sessão não o emite, um pareamento novo cancela o anterior com
-`CANCELLED`, ADR 13 do Repo 1). Os que nascem antes de chamar a sessão (`HostErrorCodes` do `:bridge`, Repo 1):
+`CANCELLED`, ADR 13 do Repo 1). Os que nascem no host, antes de chamar a sessão ou num pedido ao sistema que não é da sessão (`HostErrorCodes` do
+`:bridge`, Repo 1):
 
 | Código | Quando |
 |---|---|
@@ -210,9 +218,35 @@ Repo 1), `CANCELLED` e `BUSY` (este reservado: a sessão não o emite, um paream
 | `BLUETOOTH_OFF` | `scan`, `pairDevice` ou `startPairingAttempt` com o Bluetooth desligado. |
 | `INVALID_ARGUMENT` | `deviceId` que não é um MAC válido. |
 | `IO_ERROR` | Falha de arquivo em `exportLogs` ou ao ler o histórico local. |
+| `CLASSIC_BOND_FAILED` | O vínculo Bluetooth clássico do Condor Reebok não saiu (seção abaixo). Só `onError`, `requestId` -1, `method: "classicBond"`. |
 
 `scan()` é `void`: suas falhas só aparecem como `onError` com `method: "scan"` (`TRANSPORT` quando o próprio
 scan falha, com o `errorCode` do Android na mensagem).
+
+## Vínculo Bluetooth clássico
+
+O Condor Reebok usa o Bluetooth clássico (HFP para chamadas, A2DP para música) no mesmo endereço do BLE, e o BLE dele
+não tem SMP. A regra mora no `CoreBridge` do Repo 1 (seção 13 e ADR 30 de lá): no `READY` de um perfil com
+`Quirks.classicBond` (depois de gravar o pareamento), se o usuário não pediu desconexão, há endereço, nenhum pedido em
+andamento e o endereço não foi recusado desde o último `pairDevice`, o controlador pergunta `hasClassicBond` e, se o
+sistema não tem o vínculo, chama `requestClassicBond`. O host responde uma vez por pedido em
+`CoreBridge.onClassicBondResult`: `BONDED` vira INFO; `FAILED` entra na lista de recusados e sai `onError`
+`CLASSIC_BOND_FAILED`; `UNSUPPORTED` entra na lista e só gera um WARN. O `pairDevice` tira o endereço da lista. O
+`forgetDevice` grava o endereço e, no fim do pedido (sucesso ou erro), chama `removeClassicBond` antes de apagar o
+pareamento de novo; o `disconnectCurrentDevice` não remove. Perfis sem o quirk (fitGPS, Life Ultra GPS) nunca chamam
+os três métodos.
+
+| | Android | iOS |
+|---|---|---|
+| `hasClassicBond` | `BluetoothDevice.getBondState() == BOND_BONDED` (`ClassicBonder.hasBond`; sem permissão, `false`) | sempre `false` (o app não enxerga os vínculos do sistema) |
+| `requestClassicBond` | `createBond(TRANSPORT_BREDR)` por reflexão (`createBond()` de reserva), receiver de `ACTION_BOND_STATE_CHANGED`, 45 s por tentativa, uma nova tentativa automática 1,5 s depois de uma falha; o diálogo é do sistema. Resultado `BONDED` ou `FAILED` | WARN com a dica ("pair calls in Settings > Bluetooth") e `UNSUPPORTED`, assíncrono numa fila global |
+| `removeClassicBond` | `removeBond()` por reflexão, resultado só no log; com o Bluetooth desligado, a remoção fica pendente (preferências) e roda quando ele liga ou na partida; com o vínculo em curso, `cancelBondProcess()` e remoção se ele aparecer depois; cancela um pedido em andamento do mesmo endereço (que termina `FAILED`, e o `CoreBridge` só loga) | INFO com a dica de esquecer o relógio em Ajustes > Bluetooth |
+| Perfis HFP/A2DP | abertos pelo próprio Android depois do vínculo (HCI do app Condor, 15:43:18) | o usuário pareia em Ajustes; o `connect` BLE pede transport bridging (`CBConnectPeripheralOptionEnableTransportBridgingKey`, quirk `iosTransportBridging`), como a SDK iOS CRP |
+| Onde | `ble/ClassicBonder` + `ble/ClassicBondTracker` (regra das tentativas, Kotlin puro) | `IosCoreHost` (dica e resposta), `CoreGraph.transportConnectOptions` (opção do connect) |
+
+Detalhes do Android, com o que a captura HCI mostrou, em
+[`transporte-android.md`](transporte-android.md#vínculo-clássico-bredr); do iOS, em
+[`ios-pendente.md`](ios-pendente.md).
 
 ## Persistência
 
@@ -241,7 +275,9 @@ O mesmo desenho, com as peças do iOS no lugar das do Android; o `CoreBridge` e 
 | Plataforma | `AndroidCoreHost.kt` | `IosCoreHost.swift` |
 | Transporte | `ble/AndroidGattTransport` (`HandlerThread` "corenext-gatt") | `ble/CentralTransport` (fila serial `br.com.grupotechnos.corenext.ble`) |
 | Estado do Bluetooth | `BluetoothStateReceiver` + `reportBluetoothOffAtStartup` | `centralManagerDidUpdateState` + `BluetoothPowerTracker` |
-| Scan | `BleScanner` (filtros por nome e serviço) | dentro do `CentralTransport` (sem filtro de serviço, filtrado pelo `DeviceRegistry`) |
+| Scan | `BleScanner` (filtros por nome e serviço; sem filtro quando um perfil aceita prefixo de nome, o caso do Condor Reebok) | dentro do `CentralTransport` (sem filtro de serviço, filtrado pelo `DeviceRegistry`) |
+| Opções do `connect` | nenhuma (`connectGatt` com `TRANSPORT_LE`) | `HostTransportDelegate.transportConnectOptions`: transport bridging com `Quirks.iosTransportBridging` (Condor Reebok) |
+| Vínculo clássico | `ble/ClassicBonder` (`createBond`/`removeBond` por reflexão) | não suportado (`IosCoreHost`: dica de Ajustes > Bluetooth) |
 | Sync em segundo plano | `SyncForegroundService` | `UIKitBackgroundWork` (`beginBackgroundTask`) |
 | Histórico | `filesDir/corenext/*.json` | `Application Support/corenext/*.json` |
 | Pareamento | `SharedPreferences` `corenext.pairing` | `UserDefaults(suiteName: "br.com.grupotechnos.corenext.pairing")` |
@@ -273,4 +309,5 @@ do GCD (uma vez por vez, thread variável); o `CentralTransport` e os callbacks 
 delas e só toca peças thread-safe.
 
 **Testes do iOS.** Sem React Native e sem Bluetooth, no simulador (`ios/Tests/`): o host inteiro com as gravações reais
-dos dois relógios, o contrato B e a fila de operações. Ver [`../ios/Tests/README.md`](../ios/Tests/README.md).
+dos dois relógios e a sintética do Condor Reebok (com as leituras GATT respondidas pelos `READ` gravados), o contrato B,
+a fila de operações e as opções do `connect`. Ver [`../ios/Tests/README.md`](../ios/Tests/README.md).

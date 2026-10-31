@@ -19,13 +19,15 @@ ios/
 - **Shim do TurboModule** (`CoreNext/turbomodule/RCTNativeCoreNext.mm`): os 23 métodos do spec, cada um uma chamada ao
   `TWPCoreBridge`, e o `TWPCoreEventSink` (os 13 eventos). Registrado pelo `codegenConfig.ios.modulesProvider` do
   `package.json` (o codegen escreve `"NativeCoreNext": "RCTNativeCoreNext"` no `RCTModuleProviders.mm` do app).
-- **Host Swift** (`CoreNext/`): `CoreGraph` (um por processo), `IosCoreHost` (o `CoreHost`), `CentralTransport` (o
-  `Transport` sobre o CoreBluetooth), `FileSampleStore`, `PairingStore`, `RingLogger`, `FrameRecorder` e
-  `CoreNext.bootstrap(launchOptions:)` para a restauração do Bluetooth.
-- **Testes no simulador** (`Tests/`, 48 testes): o host inteiro com o `CoreBridge` e a sessão do framework, sobre um
-  transporte que responde com as gravações reais do fitGPS (167 e 32 TX) e do Life Ultra GPS (12 TX), mais o contrato B,
-  a fila de operações, a restauração, o re-arme (e o vínculo apagado que não re-arma), o status de cada `NSError` e o
-  tipo de escrita sem CoreBluetooth.
+- **Host Swift** (`CoreNext/`): `CoreGraph` (um por processo), `IosCoreHost` (o `CoreHost`; o vínculo Bluetooth
+  clássico do Condor Reebok responde "não suportado"), `CentralTransport` (o `Transport` sobre o CoreBluetooth),
+  `FileSampleStore`, `PairingStore`, `RingLogger`, `FrameRecorder` e `CoreNext.bootstrap(launchOptions:)` para a
+  restauração do Bluetooth.
+- **Testes no simulador** (`Tests/`, 52 testes): o host inteiro com o `CoreBridge` e a sessão do framework, sobre um
+  transporte que responde com as gravações reais do fitGPS (167 e 32 TX) e do Life Ultra GPS (12 TX) e com a sintética
+  do Condor Reebok (12 TX e 3 leituras GATT), mais o contrato B, a fila de operações, a restauração, o re-arme (e o
+  vínculo apagado que não re-arma), o status de cada `NSError`, o tipo de escrita, as opções do `connect` (transport
+  bridging) e o vínculo clássico "não suportado", sem CoreBluetooth.
 - **App de exemplo** (`../example/ios`): `pod install`, build Debug no simulador e Release para iPhone (sem assinatura
   aqui), `NSBluetoothAlwaysUsageDescription`, `UIBackgroundModes` `bluetooth-central`, export visível no app Arquivos e
   `CoreNext.bootstrap` no `AppDelegate`.

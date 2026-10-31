@@ -40,4 +40,9 @@ protocol HostTransportDelegate: AnyObject {
 
 	/// O scan não começou ou falhou.
 	func transportScanFailed(errorCode: Int32, message: String)
+
+	/// Opções do `central.connect` da conexão que vai abrir, ou `nil` para nenhuma. Chamado a cada `connect` e a cada
+	/// re-arme, na fila do transporte. O grafo decide pelo perfil da sessão (`Quirks.iosTransportBridging`), para o `ble/`
+	/// não precisar saber de família.
+	func transportConnectOptions() -> [String: Any]?
 }
