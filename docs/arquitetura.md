@@ -3,7 +3,8 @@
 Visão do Repo 2: um TurboModule fino sobre o `technos-watch-protocol` (Repo 1). Esta PoC cobre as famílias SMA
 (Mormaii fitGPS) e iDO (Mormaii Life Ultra GPS, funções básicas) no Android e, desde 2026-10-30, no iOS (testado num
 iPhone com os dois relógios no mesmo dia, sem reconexão nem segundo plano; seção [iOS](#ios)), e a família CRP (Condor
-Reebok, fase 1, ainda sem teste com o relógio nas duas plataformas). O host não tem código por família: os filtros do
+Reebok, fase 1, validada pelo usuário com o relógio no Android e no iPhone em 2026-11-01). O host não tem código por
+família: os filtros do
 scan saem de `Profiles.all` (sem filtro quando um perfil aceita prefixo de nome, como o `P85`), e o perfil diz à
 sessão quais CCCD ligar (no iDO, dois; no CRP, quatro, três deles em outros serviços), se pede MTU e o tipo de escrita
 que o driver usa (no iDO e no CRP, sem resposta). Os dois quirks que o host lê são do CRP: `classicBond` (o
@@ -309,5 +310,6 @@ do GCD (uma vez por vez, thread variável); o `CentralTransport` e os callbacks 
 delas e só toca peças thread-safe.
 
 **Testes do iOS.** Sem React Native e sem Bluetooth, no simulador (`ios/Tests/`): o host inteiro com as gravações reais
-dos dois relógios e a sintética do Condor Reebok (com as leituras GATT respondidas pelos `READ` gravados), o contrato B,
+do fitGPS, do Life Ultra GPS e do Condor Reebok (uma feita num Android e outra num iPhone) e a sintética do Condor
+Reebok (com as leituras GATT respondidas pelos `READ` gravados), o contrato B,
 a fila de operações e as opções do `connect`. Ver [`../ios/Tests/README.md`](../ios/Tests/README.md).

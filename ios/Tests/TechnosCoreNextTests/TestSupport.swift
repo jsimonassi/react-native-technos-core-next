@@ -77,6 +77,22 @@ func isCFBoolean(_ value: Any?) -> Bool {
 	return CFGetTypeID(value as CFTypeRef) == CFBooleanGetTypeID()
 }
 
+/// Meio-dia de `day` (`yyyy-MM-dd`) no fuso do processo, em ISO-8601 com offset, para o `deletedSavedData`.
+///
+/// O `CoreBridge` lê o dia de cada data no fuso do sistema (`TimeZone.currentSystemDefault()`), não no do `FixedClock`,
+/// como o app que lê a data do backend no fuso do telefone. Com o meio-dia local, o dia confirmado é o mesmo qualquer
+/// que seja o fuso da máquina (um `"…T15:00:00.000Z"` fixo vira o dia seguinte de UTC+9 para leste).
+func localNoonIso(_ day: String) -> String {
+	let parts = day.split(separator: "-").compactMap { Int($0) }
+	precondition(parts.count == 3, "day must be yyyy-MM-dd: \(day)")
+	var calendar = Calendar(identifier: .gregorian)
+	calendar.timeZone = TimeZone.current
+	let noon = calendar.date(from: DateComponents(year: parts[0], month: parts[1], day: parts[2], hour: 12))!
+	let formatter = ISO8601DateFormatter()
+	formatter.timeZone = TimeZone.current
+	return formatter.string(from: noon)
+}
+
 /// O grafo inteiro do host iOS sobre um `ReplayTransport`, com store, export e pareamento isolados por teste.
 final class HostHarness {
 	let recording: Recording
@@ -177,6 +193,17 @@ final class HostHarness {
 		waitUntil("automatic set time \(key)", file: file, line: line) {
 			let snapshot = replay.snapshot()
 			return snapshot.frameKeys.count > frames && snapshot.frameKeys.last == key && snapshot.waitingForTx
+		}
+	}
+
+	/// Espera o `EnableNotices` interno logado a partir de `since` (epoch ms, o relógio de parede do `RingLogger`) terminar:
+	/// é o último comando interno depois do `READY`, e só com ele feito o replay é conferido com a sessão parada (um TX a
+	/// mais depois do `BB 07` apareceria em `extraTx`). O `since` deixa de fora o de uma conexão anterior.
+	func waitForInternalCommandsDone(since: Int64, file: StaticString = #filePath, line: UInt = #line) {
+		waitUntil("internal commands done", file: file, line: line) {
+			graph.logger.entries(limit: RingLogger.defaultCapacity).contains {
+				$0.ts >= since && $0.tag == "Session/enableDataChangeNotices" && $0.message.hasSuffix("done (internal)")
+			}
 		}
 	}
 

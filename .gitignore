@@ -20,5 +20,7 @@ ios/.build/
 # Exports do exemplo (adb pull): o logs-*.jsonl tem o MAC do relógio e nunca vai para o git.
 corenext-export/
 logs-*.jsonl
+# Um frames-*.jsonl solto na raiz é cópia de trabalho e nunca se versiona aqui; só vira fixture do Repo 1 depois de revisado (sem MAC).
+/frames-*.jsonl
 # Captura HCI bruta do Android (btsnoop): tem os endereços dos aparelhos e texto pessoal; fica fora de qualquer repositório.
 btsnoop_hci.log*

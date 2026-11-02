@@ -19,12 +19,17 @@ Guia curto para agentes e para quem chega agora. O que a biblioteca faz e como c
 - Escopo da PoC: famílias SMA (Mormaii fitGPS), iDO (Mormaii Life Ultra GPS, só as funções básicas) e CRP (Condor
   Reebok, nome `P85`, fase 1: pareamento, reconexão, esquecer, bateria, firmware, hora, passos e sono), no Android e no
   iOS (o iOS rodou num iPhone com os dois primeiros relógios em 2026-10-30, em Release, sem reconexão, segundo plano nem
-  restauração; [`docs/ios-pendente.md`](docs/ios-pendente.md#o-que-o-iphone-mostrou-2026-10-30); o Condor Reebok ainda
-  não rodou com o relógio). Os perfis, os nomes do scan, os UUIDs e os CCCD vêm do Repo 1 (`Profiles.all`); nada aqui é
-  escrito por família. O host lê só quirks de plataforma do perfil: `bleNamePrefixes` (scan Android sem filtro),
+  restauração; [`docs/ios-pendente.md`](docs/ios-pendente.md#o-que-o-iphone-mostrou-2026-10-30)). O Condor Reebok rodou
+  com o relógio no Android e no iPhone em 2026-11-01 e o usuário validou a fase 1 nas duas plataformas (gravações em
+  `fixtures/real/condorreebok/MOY-VS02-2.0.0/` do Repo 1; o que o iPhone não cobriu, como o esquecer e as notificações
+  espontâneas, está em [`docs/ios-pendente.md`](docs/ios-pendente.md#condor-reebok-crp)). Os perfis, os nomes do
+  scan, os UUIDs e os CCCD vêm do Repo 1 (`Profiles.all`); nada aqui é escrito por família. O host lê só quirks de
+  plataforma do perfil: `bleNamePrefixes` (scan Android sem filtro),
   `classicBond` (quem decide é o `CoreBridge`; o host cria e remove o vínculo BR/EDR, `ble/ClassicBonder` no Android,
   "não suportado" no iOS) e `iosTransportBridging` (opção do `connect` no iOS). Fora: DFU, notificações, chamadas (além
-  do vínculo clássico), atividades, outras famílias e modelos, CI e publicação.
+  do vínculo clássico), atividades, o pareamento pelo CDM do Android (fora do prazo de 2026-11-05, ADR 34 do Repo 1),
+  outras famílias e modelos, CI e publicação. O `forgetDevice` nunca faz reset de fábrica: o reset (`51 02`) vira um
+  método separado na fase 2 (ADR 33 do Repo 1).
 - O `TechnosWareCore` e o app Mormaii são só referência de leitura; cite-os (`arquivo:linha`), não mude nada lá.
 
 ## Dependência do Repo 1 (Maven local)

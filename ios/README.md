@@ -23,9 +23,9 @@ ios/
   clássico do Condor Reebok responde "não suportado"), `CentralTransport` (o `Transport` sobre o CoreBluetooth),
   `FileSampleStore`, `PairingStore`, `RingLogger`, `FrameRecorder` e `CoreNext.bootstrap(launchOptions:)` para a
   restauração do Bluetooth.
-- **Testes no simulador** (`Tests/`, 52 testes): o host inteiro com o `CoreBridge` e a sessão do framework, sobre um
-  transporte que responde com as gravações reais do fitGPS (167 e 32 TX) e do Life Ultra GPS (12 TX) e com a sintética
-  do Condor Reebok (12 TX e 3 leituras GATT), mais o contrato B, a fila de operações, a restauração, o re-arme (e o
+- **Testes no simulador** (`Tests/`, 54 testes): o host inteiro com o `CoreBridge` e a sessão do framework, sobre um
+  transporte que responde com as gravações reais do fitGPS (167 e 32 TX), do Life Ultra GPS (12 TX) e do Condor Reebok
+  (38 TX e 7 leituras GATT, gravada num Android; 27 TX e 5 leituras GATT, gravada num iPhone) e com a sintética do Condor Reebok (12 TX e 3 leituras GATT), mais o contrato B, a fila de operações, a restauração, o re-arme (e o
   vínculo apagado que não re-arma), o status de cada `NSError`, o tipo de escrita, as opções do `connect` (transport
   bridging) e o vínculo clássico "não suportado", sem CoreBluetooth.
 - **App de exemplo** (`../example/ios`): `pod install`, build Debug no simulador e Release para iPhone (sem assinatura
@@ -34,7 +34,8 @@ ios/
 
 Rodou num iPhone com os dois relógios em 2026-10-30 (Release; sem reconexão nem segundo plano): o resultado e o que falta
 estão no [`docs/ios-pendente.md`](../docs/ios-pendente.md#o-que-o-iphone-mostrou-2026-10-30), e o roteiro, no
-[`example/README.md`](../example/README.md#rodar-no-iphone).
+[`example/README.md`](../example/README.md#rodar-no-iphone). Com o Condor Reebok, rodou num iPhone em 2026-11-01
+([o que mostrou](../docs/ios-pendente.md#o-que-o-iphone-mostrou-do-condor-reebok-2026-11-01)).
 
 ## O framework do Repo 1
 

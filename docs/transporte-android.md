@@ -10,7 +10,10 @@ atual (`TechnosWareCore/android/...`; para o Condor, a tag `v4.3.57`, `core@v4.3
 de 2026-10-29 ([O que a gravação do fitGPS mostrou](#o-que-a-gravação-do-fitgps-mostrou)) e a captura HCI do app Condor
 de produção pareando o P85 num Android, em 2026-10-31 (as fixtures de referência do Repo 1,
 `fixtures/reference/condorreebok/MOY-VS02-2.0.0/`, citadas por arquivo e `atMs`; o que é Bluetooth clássico, que as
-fixtures não guardam, é citado pelo horário local da captura, "HCI hh:mm:ss").
+fixtures não guardam, é citado pelo horário local da captura, "HCI hh:mm:ss"). Desde 2026-11-01, também a primeira
+gravação do P85 por este host, `fixtures/real/condorreebok/MOY-VS02-2.0.0/pair-forget-pair-commands-sync-bt-reconnect.jsonl`
+do Repo 1 (`real@<atMs>`, como no `docs/protocolo-crp.md` de lá), e o log nativo dela, `logs-20261101-163702.jsonl`,
+que tem o MAC e os nomes de aparelhos vizinhos, não é versionado e é citado por `log ts`, sem endereço.
 
 ## Thread única
 
@@ -140,7 +143,10 @@ serviços que acelera a reconexão.
   registrada no `setCharacteristicNotification` (o aviso de bateria espontâneo, uma vez por minuto, chega ao app Condor
   sem ele escrever o CCCD de `2a19`, mas não chegaria aqui). É o `subscribeDeviceBattery` da SDK (`sdk:h/a.java:423-429`).
   Nada muda no transporte: o `findCharacteristic(service, ch)` já acha a characteristic em qualquer serviço. Uma
-  falha nessas três não derruba o pareamento (a sessão loga WARN e segue).
+  falha nessas três não derruba o pareamento (a sessão loga WARN e segue). **Visto em 2026-11-01:** as quatro
+  (`fee3`, `2a37`, `fee1`, `2a19`) com status 0, de 23 a 119 ms cada, nas três conexões da gravação real, sem
+  vínculo BLE do sistema e sem WARN (`log ts` 1793561510807 a 1793561511043, e o mesmo nas outras duas); a descoberta
+  trouxe os mesmos nove serviços da captura do app Condor.
 - `requestMtu(mtu)` → `onMtuChanged(requestId, mtuEfetivo, status)`. No fitGPS a sessão pede 247 (`Quirks.requestMtu`);
   a SDK pede 512 (`SmaManager.java:204`). No Life Ultra GPS a sessão não chama `requestMtu` (`requestMtu = 23`; a SDK
   iDO também não pede), e todo frame tem no máximo 20 bytes; o Android 14+ pode negociar um MTU maior sozinho, o que só
@@ -153,7 +159,9 @@ serviços que acelera a reconexão.
   responde 517 (cabeçalho de `condor-app-pair-sync.jsonl`: `"mtu":517`, `"mtuInitiator":"peripheral"`). O callback
   chega sem operação nossa pendente e só atualiza o `currentMtu` (o caminho "mudança sem pedido" acima). O
   `requestMtu(512)` que a sessão faz depois das CCCDs não gera tráfego no ar: o Android responde na hora com o MTU já
-  trocado. O driver CRP usa esse MTU para o tamanho de bloco (244 bytes com 517).
+  trocado. O driver CRP usa esse MTU para o tamanho de bloco (244 bytes com 517). **Visto com este host em
+  2026-11-01:** `requestMtu requested=512 effective=517 status=0` nas três conexões, 8 ms depois da última CCCD
+  (`log ts` 1793561511051, 1793561589530 e 1793561811322), e o export saiu com `"mtu":517`.
 
 ## Escrita
 
@@ -186,7 +194,11 @@ A remontagem de frames (L1 de 8 bytes em notificação própria, `SmaManager.jav
 as notificações vêm de quatro characteristics (`fee3`, `fee1`, `2a19`, `2a37`), cada uma com o UUID dela; a sessão
 manda as de `fee3` para a remontagem de frames do driver e as outras para o canal lateral (`sideNotify`) com a origem.
 A `2a19` chega sozinha cerca de uma vez por minuto (em `condor-app-pair-sync.jsonl`, `0x32` em atMs 48921) e a `fee1` a
-cada passo andando (em `condor-app-reconnect-sync-walk.jsonl`, de atMs 106148 a 136148). No fitGPS 0.2.1
+cada passo andando (em `condor-app-reconnect-sync-walk.jsonl`, de atMs 106148 a 136148). Com este host (2026-11-01): a
+`2a19` com `0x2B` (43 %) em `real@10306`, `@129963`, `@190422`, `@250823` e `@310025`, perto da virada de cada minuto;
+a `fee1` em rajada, quatro notificações em 6 ms (`real@220546` a `@220552`) e duas um segundo depois; e a `2a37` (82 a
+78 bpm) a cada cerca de 1 s, de `real@20285` a `@29218`, só na conexão em que o vínculo clássico foi aceito. Todas
+chegaram ao canal certo com o UUID de origem. No fitGPS 0.2.1
 com MTU 23, o cabeçalho L1 de 8 bytes chegou sempre sozinho numa notificação (79 de 79 frames RX de dados na fixture
 `technos-watch-protocol/fixtures/real/fitgps/0.2.1/pair-commands-bt-reconnect-sync.jsonl`, ex.: `AB0000061B000000` em atMs 2424 e o resto do BIND_BACK em
 2426), mesmo quando o frame inteiro caberia em 20 bytes.
@@ -205,7 +217,10 @@ com MTU 23, o cabeçalho L1 de 8 bytes chegou sempre sozinho numa notificação 
   com esse perfil em `Profiles.all`, o `startScan` sai com a lista de filtros vazia (`FilterSpec.unfiltered`), como o
   Core do app Condor, que também escaneia sem filtro (`CRPBleConnectHelper.java:817-881`, por 20 s; fase 0, CON-37). A identificação continua no `DeviceRegistry.identify`, então o
   fitGPS e o Life Ultra GPS saem iguais. Nesse modo, aparelhos desconhecidos sem nome não vão para o log, para o anel
-  de 2000 entradas não encher num lugar cheio de BLE. Limite conhecido: o Android não entrega resultado de scan sem
+  de 2000 entradas não encher num lugar cheio de BLE. **Visto em 2026-11-01:** os dois scans de 7 s sem filtro acharam
+  o P85 (`name=P85`, `profile=condorreebok`, `advertisedServices=[]`: ele não anuncia serviço nenhum; `log ts`
+  1793561505045 e 1793561586305), com 18 linhas `onScanResult` no total. Os nomes dos outros aparelhos dessas linhas
+  só existem no log, que não é versionado. Limite conhecido: o Android não entrega resultado de scan sem
   filtro com a tela desligada (o scan é sempre com o app aberto).
 - `SCAN_MODE_LOW_LATENCY`, 7 s (`SMAService.java:625-635`). Um `onScannedDevice` por endereço por scan.
 - Cada resultado passa por `DeviceRegistry.identify(nome, serviços anunciados)`. Nome: `scanRecord.deviceName`, e
@@ -237,6 +252,11 @@ com MTU 23, o cabeçalho L1 de 8 bytes chegou sempre sozinho numa notificação 
 - **Ligou:** o transporte entrega `onBluetoothStateChanged(true)` e, na mesma thread, logo depois, o `CoreGraph` chama
   `CoreBridge.onBluetoothTurnedOn`, que decide se reconecta (`reconnectIfPaired`; ordem garantida: o `reconnect`
   entra na fila da sessão depois do evento de Bluetooth).
+- **Visto com o Condor Reebok (2026-11-01):** `enabled=false; transport stopped without onDisconnected (active=true)` e
+  `READY -> BLUETOOTH_OFF` (`log ts` 1793561800010); 4,1 s depois, `enabled=true`, `BLUETOOTH_OFF -> RECONNECTING`,
+  `Reconnecting to … (Bluetooth turned on)` e `openGatt … autoConnect=true`; o link subiu 6 s depois e a sessão voltou a
+  `READY` só com o handshake de versão (`real@300152`), com a hora automática 255 ms depois. O contrato B no aparelho,
+  agora também com o P85.
 
 ## Vínculo clássico (BR/EDR)
 
@@ -300,6 +320,21 @@ Como o `ClassicBonder` faz:
 O que o Core do app Condor faz diferente e não foi copiado: derruba a conexão depois de 12 s em "conectando"
 (`CRPBleConnectHelper.java:55, 611-623`), o que pode cair no meio do diálogo e virar um laço de diálogos; aqui o prazo
 é 45 s e uma recusa não é pedida de novo.
+
+**O que a gravação com este host mostrou (2026-11-01).** Android com o app de exemplo, P85 com `MOY-VS02-2.0.0`; os
+estados do vínculo são os do `ACTION_BOND_STATE_CHANGED` (10 `BOND_NONE`, 11 `BOND_BONDING`, 12 `BOND_BONDED`), citados
+por `log ts` sem o endereço, e o que passou no BLE pela gravação real (`real@<atMs>`):
+
+| Caso | Visto |
+|---|---|
+| Aceitar | `Requesting classic bond … (TRANSPORT_BREDR, up to 2 attempts of 45000 ms)` no `READY`; `createBond attempt 1 … started=true bondState=10`, sem o WARN de reserva; `10 → 11` em 1793561512204 e `11 → 12` em 1793561516717; `BONDED (bonded)` e `Classic bond with … ready: bonded`, 4,5 s depois do pedido. O relógio mandou `F9 01 01 00` durante o `BONDING` (`real@2077`) e `F9 01 01 01` cerca de 170 ms depois do `BOND_BONDED` (`real@5364`). O acerto de hora saiu antes do vínculo fechar e não esperou o diálogo |
+| Recusar | Tentativa 1: `10 → 11` (1793561590559) e `11 → 10 (reason=1)` (1793561601006); `failed, retrying in 1500 ms`; tentativa 2: `10 → 11` (1793561602558) e `11 → 10 (reason=1)` (1793561611424); `FAILED … (attempt 2 of 2)` e o `onError` `CLASSIC_BOND_FAILED` com `requestId -1` (1793561611437). A recusa do usuário chegou com o mesmo `reason=1` nas duas, então o host não distingue recusa de falha (o motivo só vai para o log). A sessão BLE ficou em `READY`, e os comandos, o sync e a reconexão seguintes funcionaram |
+| Esquecer | Depois do `F8` (`real@38047`; `F8 written` em 1793561549779), a sessão fechou o disconnect #2 (`READY -> DISCONNECTED` em 1793561549783, `#2 completed` em 1793561549785) e, depois desse `onCompleted`, o `CoreBridge` pediu a remoção: `Removing classic bond with …` (1793561549785) e `removeBond(…) returned true (bond state was 12)` (1793561549801). A linha `AndroidGattTransport/disconnect`, da thread BLE, saiu em 1793561549812; o log não mostra relação de causa entre ela e o `removeBond`. O `pairDevice` seguinte pediu o diálogo de novo |
+| Bluetooth desligado e religado, com o vínculo recusado antes | Nenhum pedido novo de vínculo no `READY` da reconexão (nenhuma linha `ClassicBonder/` nem `CoreBridge/classicBond`; a recusa vale até o próximo `pairDevice`), e nenhum `F9` do relógio |
+
+Não vistos ainda: a nova tentativa depois de um `0x06`, HFP e A2DP abertos pelo Android (chamadas e música), o relógio
+reabrindo o clássico com a chave guardada depois do Bluetooth religado (o vínculo estava recusado nessa conexão) e os
+dois casos de borda do esquecer (Bluetooth desligado e diálogo aberto).
 
 ## Serviço em primeiro plano só no sync
 
@@ -415,6 +450,12 @@ Repo 1; o que falta testar com o relógio está no `docs/pendencias.md` de lá.
      cenário é prefixo exato do seguinte (`frames-20261029-082857.jsonl` é prefixo de `frames-20261029-083254.jsonl`).
      Versionar os dois duplicaria o replay.
    - **Nunca versionar `logs-*.jsonl`**: o log tem o MAC do relógio. O arquivo de frames não tem.
+   - **Export na raiz deste repositório.** Em 2026-11-01 o `frames-*.jsonl` e o `logs-*.jsonl` da primeira gravação do
+     Condor Reebok foram copiados para a raiz daqui. O `.gitignore` ignora os dois ali (`logs-*.jsonl` em qualquer pasta,
+     `/frames-*.jsonl` só na raiz): um frames da raiz é só cópia de trabalho e vira fixture do Repo 1 depois de revisado.
+     A regra também esconde exportações ainda não revisadas (o `frames-20261101-170415.jsonl` do iPhone ficou assim até
+     ser revisado e virar a fixture `ios-pair-commands-sync-reconnect.jsonl` do Repo 1, no mesmo dia); a lista do que
+     está lá e do que já foi revisado fica no [`pendencias.md`](pendencias.md), seção 6.
    - Um arquivo pode ter uma reconexão no meio (Bluetooth desligado e religado, LOGIN de novo): o harness de replay do
      Repo 1 reproduz isso.
 

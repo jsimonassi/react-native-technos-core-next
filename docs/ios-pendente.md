@@ -7,8 +7,9 @@ GPS. Reconexão, segundo plano e restauração ainda não foram testados no apar
 [O que o iPhone mostrou](#o-que-o-iphone-mostrou-2026-10-30); o que foi conferido sem Bluetooth, em
 [Verificação](#verificação-sem-iphone); o que falta, em [Pendências](#pendências). Como gerar o framework, rodar os
 testes e o app: [`../ios/README.md`](../ios/README.md). O Condor Reebok (família CRP, fase 1) entrou depois, em
-2026-10-31, e ainda não rodou num iPhone: o que o host faz por ele e o que falta ver está em
-[Condor Reebok (CRP)](#condor-reebok-crp).
+2026-10-31, e rodou com o relógio num Android e num iPhone em 2026-11-01; o usuário validou a fase 1 nas duas
+plataformas ("Teste feito no iOS e funcionando como esperado"). As duas gravações passam pelo host iOS no simulador. O
+que o host faz por ele, o que o iPhone mostrou e o que falta ver estão em [Condor Reebok (CRP)](#condor-reebok-crp).
 Fontes de referência citadas: Core iOS atual (`TechnosWareCore/ios/smaBluetooth/SMAService.m`), SDK SMA iOS
 (`TechnosWareCore/examples/basic/ios/Pods/SmaTechnosIosSdk/BLEAPI/SmaBLE.m`) e o header gerado do XCFramework.
 
@@ -246,25 +247,37 @@ processo; `EventMapper.startOfDayIso`, `sleepDay` e `historySleep` são `throws`
 
 ## Condor Reebok (CRP)
 
-A fase 1 do Condor Reebok (nome anunciado `P85`, firmware `MOY-VS02-2.0.0`) vale para as duas plataformas, mas só foi
-conferida no simulador (a fixture sintética do Repo 1, abaixo). O protocolo é o do `docs/protocolo-crp.md` do Repo 1;
-aqui fica o que o host iOS faz de diferente.
+A fase 1 do Condor Reebok (nome anunciado `P85`, firmware `MOY-VS02-2.0.0`) vale para as duas plataformas. No iOS ela
+foi conferida no simulador, com a fixture sintética do Repo 1 e com as gravações reais do Android e do iPhone, e **num
+iPhone em 2026-11-01** ([O que o iPhone mostrou](#o-que-o-iphone-mostrou-do-condor-reebok-2026-11-01), abaixo). O
+protocolo é o do `docs/protocolo-crp.md` do Repo 1 (a gravação do iPhone é citada lá como `ios@<atMs>`); aqui fica o
+que o host iOS faz de diferente.
 
 - **Transport bridging.** O `connect` do P85 sai com `CBConnectPeripheralOptionEnableTransportBridgingKey = true`, como
   a SDK iOS CRP (`CRPBle.connect(_:)`, literal no binário `CRPSmartBand.framework` em `0xb2e60`; fase 0, CON-17): a
   opção pede ao iOS que ligue ao link BLE os perfis clássicos (chamadas e música) do mesmo aparelho. Quem decide é o
   quirk `iosTransportBridging` do perfil, lido pelo `CoreGraph` (`transportConnectOptions`); o fitGPS e o Life Ultra GPS
   seguem sem opções. As opções vão para a linha `CentralTransport/connect … options=…` do log. O efeito real (se o iPhone
-  passa a mostrar o relógio em Ajustes > Bluetooth, se pede pareamento) não foi visto.
+  passa a mostrar o relógio em Ajustes > Bluetooth, se pede pareamento) não foi visto: no teste de 2026-11-01 o P85 já
+  estava pareado nos Ajustes, e não há log do iPhone.
 - **Vínculo clássico: não suportado.** O iOS não deixa o app criar nem remover vínculo BR/EDR. O `CoreBridge` pede no
   `READY` (o `hasClassicBond` responde `false`), o `IosCoreHost` responde `UNSUPPORTED` com a dica e o controlador só
   registra um WARN (sem `onError`) e não pede de novo até o próximo `pairDevice`. Para chamadas e música, o usuário
   pareia em Ajustes > Bluetooth. No `forgetDevice`, a sessão manda o `F8` e o host só loga a dica de esquecer o relógio
-  nos Ajustes (o app Condor de produção mostra a mesma instrução depois de desconectar; fase 0, CON-18).
+  nos Ajustes (o app Condor de produção mostra a mesma instrução depois de desconectar; fase 0, CON-18). O esquecer
+  nunca manda o reset de fábrica `51 02`, que vira um método separado na fase 2 (ADR 33 do Repo 1). No iPhone
+  (2026-11-01), com o P85 já pareado nos Ajustes, a sessão BLE seguiu pronta depois do "não suportado" e o relógio mandou
+  `F9 01 01 00` → `01` sem pedido de vínculo do app (`ios@3897` e `@4391`; pela hipótese da seção 7 do
+  `docs/protocolo-crp.md` do Repo 1, o link clássico abrindo com a chave guardada; se ele abriu e quem o abriu, o relógio
+  ou o próprio iOS, não se sabe sem log nem captura do BR/EDR); o WARN não foi visto (sem log) e o `forgetDevice` não
+  foi gravado.
 - **Pareamento BLE desconhecido.** No Android, o BLE do P85 não tem SMP nem criptografia (HCI do app Condor, conexão LE
   de 15:43:12). No iPhone não se sabe se o relógio pede um vínculo LE; há indícios dos dois lados (fase 0, CON-17 e
   CON-18: a instrução de "esquecer dispositivo" pode ser pelo item BR/EDR que o bridging cria). Se o iPhone guardar um
   vínculo e o relógio for resetado, aparece o `PAIRING_REMOVED` já tratado ([Conexão e reconexão](#conexão-e-reconexão)).
+  No Android com este core (2026-11-01), as quatro CCCDs voltaram com status 0 sem vínculo BLE, inclusive na conexão em
+  que o vínculo clássico foi recusado: o relógio não exigiu criptografia no LE ali. Isso não responde pelo iPhone, e o
+  teste de 2026-11-01 também não: o P85 já estava pareado nos Ajustes, e se o iOS mostrou algum pedido não foi anotado.
 - **Leituras GATT.** Versão (`2a29`), firmware (`2a28`), bateria (`2a19`) e passos do dia (`fee1`) são leituras: o
   `CentralTransport.read` já serve (`readValue` → `didUpdateValueFor` enquanto a leitura é a operação atual). Uma
   notificação da mesma characteristic que chegue durante a leitura vira a resposta dela (o valor é o mesmo tipo de
@@ -273,17 +286,47 @@ aqui fica o que o host iOS faz de diferente.
   além do `fee3` dos frames, nesta ordem. No iOS, como no Android, só chega ao app a notificação de uma characteristic
   assinada (`setNotifyValue`): é por isso que a `2a19` entra na lista (o aviso de bateria espontâneo, uma vez por
   minuto). O transporte acha a characteristic em qualquer serviço descoberto; uma falha nessas três não derruba o
-  pareamento (a sessão loga WARN).
+  pareamento (a sessão loga WARN). **No iPhone (2026-11-01), nenhuma notificação lateral foi gravada** (nem `2a19`,
+  nem `fee1`, nem `2a37`); o resultado é inconclusivo, não uma falha confirmada (motivos e teste pedido abaixo).
 - **Escrita sem resposta no `fee2`.** A characteristic declara só `writeWithoutResponse` (cabeçalho `gatt` da fixture de
   referência `condor-app-pair-sync.jsonl` do Repo 1), e o driver pede `WITHOUT_RESPONSE`: o `effectiveWriteType` usa o
   tipo pedido, sem WARN. Os frames da fase 1 cabem num pacote; o ritmo (20 ms entre pedaços, cerca de 200 ms depois de
   cada frame) é do driver.
 - **MTU.** O driver CRP calcula o bloco pelo MTU do link (`min(MTU, 250) - 3`, arredondado para baixo a múltiplo de 4,
   no mínimo 20; regra da SDK Android). No iOS esse MTU é o `maximumWriteValueLength(.withoutResponse) + 3`; as
-  diferenças com a SDK iOS (pedaço de 256 bytes) estão no `docs/protocolo-crp.md` do Repo 1, seção 11.
+  diferenças com a SDK iOS (pedaço de 256 bytes) estão no `docs/protocolo-crp.md` do Repo 1, seção 11. No iPhone
+  (2026-11-01) deu 515 (517 no Android): `min(515, 250) - 3` = 247, o mesmo bloco 244, e todo TX sai com `b2 = 0x20`.
 - **`deviceId`.** É o UUID do periférico, como nos outros relógios. O Core do app Condor emite no iOS o MAC que vem no
   anúncio (`CRPDiscovery.mac`; fase 0, CON-37), e o app compara MAC sem `:`. A migração do app Condor precisa disso
   resolvido (fase 4, `pendencias.md`).
+
+**O que a gravação do Android (2026-11-01) já dizia para o iOS.** O protocolo é o mesmo nas duas plataformas, então o
+que a gravação real mostrou do relógio devia se repetir aqui: o handshake de versão até o `READY` em cerca de 1 s, o
+`33 01` respondido no formato legado (os totais de ontem vêm do relógio), os ecos vazios do `32`, `33 03` e `33 04` sem
+noite, a meia hora corrente fora do histórico enquanto está aberta e a bateria notificada a cada cerca de 60 s
+(`docs/protocolo-crp.md` do Repo 1, seções 2 e 5 a 9, `real@<atMs>`). O iPhone repetiu o handshake de versão (com os
+mesmos bytes; o instante do `READY` não está gravado, sem log), o `33 01` legado e os ecos vazios do sono, e mostrou a
+meia hora de 16:30 já fechada (21 no `59 01`). Não são observáveis nesta gravação: o `READY` em cerca de 1 s, a regra
+da meia hora aberta (a de 17:00 teve 0 passo, e o `FEE1` era a soma das fechadas) e o aviso de bateria (inconclusivo,
+[abaixo](#o-que-o-iphone-mostrou-do-condor-reebok-2026-11-01)). Do que é da plataforma, o iPhone mostrou o MTU (515 no
+cabeçalho); o tipo das escritas no `fee2` (sem resposta) vem do teste do host no simulador e só o log confirmaria no
+aparelho. O pedido de pareamento do sistema, o efeito do transport bridging e as CCCDs continuam sem prova.
+
+O teste do simulador `CoreBridgeReplayTests.testCondorReebokRealAndroidRecordingThroughTheWholeIosHost` (desde
+2026-11-01) passa essa gravação pelo host iOS inteiro, um método JS por vez, na ordem do app de exemplo: `initialize`,
+`scan`, `pairDevice`, `forgetDevice` com o `F8`, `getLastPairedDevice`, `pairDevice` de novo, `getDeviceInfo`,
+`getFirmwareInfo`, `getBatteryStatus`, `setTime` (depois dele, a releitura que a sessão faz sozinha quando o `FEE1`
+notifica), `refreshSteps`, `syncDataHistory`, `getHistoryPedometer`, `getHistorySleep`, `deletedSavedData` de ontem (o
+meio-dia de 2026-10-31 no fuso da máquina, o que o `CoreBridge` usa, para o teste não depender do fuso do simulador),
+`getHistoryPedometer` de novo e o Bluetooth desligado e religado. Linha do log do teste: `IOS-REPLAY
+pair-forget-pair-commands-sync-bt-reconnect.jsonl: 97 packets, TX matched 38/38, READ matched 7/7, writes
+[WITHOUT_RESPONSE: 38], connects 3, battery 43%, steps 2026-10-31 = 77, 2026-11-01 = 21`; o `getHistorySleep` dá
+`NO_DATA`. Ele espera o `enableDataChangeNotices … done (internal)` antes do `forgetDevice`, como no app (lá, o esquecer
+veio 37 s depois): um `forgetDevice` logo depois do acerto de hora automático cancela o `setTime`/`enableDataChangeNotices`
+internos ainda no atraso pós-escrita (`CANCELLED disconnect #2`), o que é de propósito (a desconexão falha os comandos na
+fila) e inofensivo (o `31` e o `BB 07 00` já tinham saído). Os dois testes do Condor Reebok com gravação real esperam o
+mesmo `done (internal)` também depois da reconexão do fim, antes de conferir `extraTx` e `consumed`, para conferir com a
+sessão parada (`HostHarness.waitForInternalCommandsDone`).
 
 O teste do simulador (`CoreBridgeReplayTests.testCondorReebokSyntheticFixture`) roda o host inteiro com a fixture
 sintética do Repo 1 (`fixtures/synthetic/condorreebok-pair-sync.jsonl`: os TX do nosso driver e os RX e READ reais da
@@ -291,6 +334,44 @@ captura do app Condor): **TX 12/12 e READ 3/3**, todas as escritas sem resposta,
 `MOY-VS02-2.0.0`, sync sem passos nem sono, o `onBatteryStatus` espontâneo da `2a19`, o vínculo clássico "não suportado"
 sem `onError`, o `exportLogs` com as 3 leituras como `READ` e o `F8` do forget. O `TransportOptionsTests` confere o
 bridging só no Condor.
+
+### O que o iPhone mostrou do Condor Reebok (2026-11-01)
+
+App de exemplo num iPhone, com o P85 já pareado em Ajustes > Bluetooth; o usuário relatou "Teste feito no iOS e
+funcionando como esperado". A exportação (`frames-20261101-170415.jsonl`, sem `logs-*` nem o texto do Share ao lado)
+virou a fixture `real/condorreebok/MOY-VS02-2.0.0/ios-pair-commands-sync-reconnect.jsonl` do Repo 1 (procedência e
+conferência de privacidade no `docs/fixtures.md` de lá, seção 5; citada como `ios@<atMs>` no `docs/protocolo-crp.md`).
+Sem log, o que só ele mostraria (descoberta, CCCDs, `requestMtu`, o WARN do vínculo, transições) não está registrado.
+
+- **Confirmado pela gravação**: duas conexões com o mesmo handshake de versão do Android (`READ 2a29`, `5A 00`
+  respondido em 53 e 87 ms, `B7 0E` e `BB 16 00` sem resposta, o `31` e o `BB 07 00` automáticos); MTU 515 no
+  cabeçalho (o do link da conexão 2 no export), com todo TX em `b2 = 0x20` e as respostas `59` de 54 bytes numa
+  notificação só; as 27 escritas em `fee2` (as que esperam resposta foram todas respondidas; o tipo, sem resposta, vem
+  do teste do host no simulador, porque o pacote não guarda o tipo, e só o log confirmaria no aparelho) e as 5 leituras
+  GATT (`2a29` × 2, `fee1` × 2, `2a19`) pelo `CentralTransport`; o "Ler" (dois `5A 01`), a bateria lida (43 %), o `setTime`, o Refresh steps e o Sync com os mesmos
+  números do Android (hoje 21 passos, 17 m e 1 kcal; ontem 77, 63 m e 4 kcal pelo `33 01`), os ecos vazios do sono e a
+  meia hora de 16:30 no `59 01` depois de fechar (21; no Android ela ainda estava aberta).
+- **Vínculo clássico**: o host respondeu "não suportado" e o relógio, já pareado nos Ajustes, mandou `F9 01 01 00` →
+  `01` sem pedido de vínculo do app (pela hipótese do Repo 1, o link clássico abrindo com a chave guardada; se ele abriu
+  e quem o abriu, o relógio ou o próprio iOS, não se sabe sem log nem captura do BR/EDR). Depois vieram `F9 02 00` duas vezes e `F9 02 01` quatro vezes, só no log.
+- **Não coberto**: o `forgetDevice` (nenhum `F8`), se o iOS pediu pareamento, o efeito do transport bridging, a causa
+  da reconexão do fim (Bluetooth desligado, fora de alcance ou Reconnect last), fora de alcance, carregador, passos ao
+  vivo andando, uma noite de sono, segundo plano e restauração.
+- **Inconclusivo: nenhuma notificação espontânea.** Nenhum `2a19`, `fee1` ou `2a37` na gravação. Não é falha
+  confirmada: os passos não mudaram (no Android a `fee1` só notificou com passos novos); a única virada de minuto da
+  janela gravada da conexão 1 caiu junto com o `31` do handshake (no Android, o aviso de bateria vem logo depois da
+  virada do minuto); não se sabe quando o link 1 caiu; e, sem log, não se sabe se as três CCCDs laterais voltaram com
+  status 0. Pedido ao usuário em 2026-11-01: com o relógio conectado e o app aberto, andar uns 20 passos, ficar parado
+  2 min e exportar, ou mandar o log do iPhone (Console.app com as mensagens de informação; cada CCCD tem uma linha
+  `CentralTransport/enableNotifications characteristic=… status=…`). Caixa em [Pendências](#pendências).
+
+O teste do simulador `CoreBridgeReplayTests.testCondorReebokRealIosRecordingThroughTheWholeIosHost` (desde
+2026-11-01) passa essa gravação pelo host iOS inteiro, um método JS por vez: `initialize`, `scan`, `pairDevice` (com o
+vínculo clássico "não suportado", sem `onError`), `getDeviceInfo`, `getFirmwareInfo`, `getBatteryStatus`, `setTime`,
+`refreshSteps`, `syncDataHistory`, `getHistoryPedometer`, `getHistorySleep` com `NO_DATA` e a reconexão do fim, simulada
+com o Bluetooth desligado e religado. Linha do log do teste: `IOS-REPLAY ios-pair-commands-sync-reconnect.jsonl: 57
+packets, TX matched 27/27, READ matched 5/5, writes [WITHOUT_RESPONSE: 27], connects 2, battery 43%, steps 2026-10-31
+= 77, 2026-11-01 = 21`; só o `onBatteryStatus` pedido e só o `onPedometer` do `refreshSteps`.
 
 ## Duas instâncias do TurboModule
 
@@ -411,10 +492,11 @@ O que este teste não cobriu está em [Pendências](#pendências).
 
 Feita em 2026-10-30, com Xcode 26.1.1 e simulador iOS 26:
 
-- **Testes do host no simulador** (`ios/Tests/`, `xcodebuild test`): 52 testes (43 na revisão de 2026-10-30, mais 5 do
+- **Testes do host no simulador** (`ios/Tests/`, `xcodebuild test`): 54 testes (43 na revisão de 2026-10-30, mais 5 do
   vínculo apagado: o status de cada `NSError`, na conexão e na escrita, e o `LinkLifecycle` que termina a conexão
   pendente; mais 4 do Condor Reebok em 2026-10-31: o replay da sintética, as opções do `connect`, a leitura gravada
-  como `READ` e o vínculo clássico "não suportado"). O `CoreGraph` de verdade (com o
+  como `READ` e o vínculo clássico "não suportado"; mais 2 em 2026-11-01: as gravações reais do Condor Reebok feitas no
+  Android e no iPhone). O `CoreGraph` de verdade (com o
   `CoreBridge` e a sessão do framework Kotlin, `IosCoreHost`, `FileSampleStore`, `PairingStore`, `RingLogger`,
   `FrameRecorder`) sobre um transporte que responde com as gravações reais, método JS por método JS:
   `pair-commands-bt-reconnect-sync.jsonl` (fitGPS, 850 pacotes, **TX 167/167**, Bluetooth desligado e religado com
@@ -477,13 +559,21 @@ Em aberto:
   `rearm`), e a reconexão ao voltar ao app depois de esquecer o relógio nos Ajustes.
 - [ ] Duas instâncias do TurboModule: com o log novo do shim, qual método veio por qual instância
   ([seção](#duas-instâncias-do-turbomodule)).
-- [ ] Condor Reebok no iPhone ([seção](#condor-reebok-crp); roteiro no
-  [`example/README.md`](../example/README.md#condor-reebok-no-iphone)): se o iOS pede pareamento no `connect` (e se o
-  Condor iOS já tinha pareado, esquecer o P85 nos Ajustes antes), o efeito do transport bridging (o relógio aparece em
-  Ajustes > Bluetooth? as chamadas funcionam depois de parear lá?), o WARN da dica do vínculo clássico, o MTU do link
-  (`requestMtu requested=512 effective=…`), as propriedades do `fee2` na linha `discoverServices`, bateria (e a
-  espontânea), firmware, passos ao vivo andando, sync, sono depois de uma noite, Bluetooth desligado e religado, fora de
-  alcance e o `forgetDevice` (`F8`). Gravação `platform` `ios` para `fixtures/real/condorreebok/MOY-VS02-2.0.0/`.
+- [x] Condor Reebok no iPhone, a fase 1 (2026-11-01, validada pelo usuário;
+  [O que o iPhone mostrou](#o-que-o-iphone-mostrou-do-condor-reebok-2026-11-01)): pareamento com o P85 já pareado nos
+  Ajustes e o vínculo clássico "não suportado", MTU 515 (bloco 244, `b2 = 0x20`), firmware, bateria lida, hora, Refresh
+  steps, sync (passos de hoje e de ontem, sono vazio) e uma reconexão, com a gravação `platform` `ios` versionada em
+  `fixtures/real/condorreebok/MOY-VS02-2.0.0/ios-pair-commands-sync-reconnect.jsonl` e reproduzindo no Repo 1 e no host
+  do simulador.
+- [ ] Condor Reebok no iPhone, o que a gravação de 2026-11-01 não cobriu (roteiro no
+  [`example/README.md`](../example/README.md#condor-reebok-no-iphone)): as notificações espontâneas (bateria a cada
+  minuto e `fee1` andando; nenhuma veio na gravação, inconclusivo; teste curto pedido ao usuário: andar uns 20 passos com
+  o app aberto, ficar parado 2 min e exportar, ou mandar o log do iPhone com as linhas
+  `CentralTransport/enableNotifications … status=…`); se o iOS pede pareamento no `connect` (com o P85 esquecido nos
+  Ajustes antes); o efeito do transport bridging (o relógio aparece em Ajustes > Bluetooth? as chamadas funcionam
+  depois de parear lá?); o WARN da dica do vínculo clássico e o `requestMtu requested=512 effective=…` no log; as
+  propriedades do `fee2` na linha `discoverServices`; sono depois de uma noite; Bluetooth desligado e religado com a
+  causa anotada; fora de alcance; e o `forgetDevice` (`F8`, com a dica de esquecer o relógio nos Ajustes).
 
 Limites conhecidos, de desenho:
 

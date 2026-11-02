@@ -26,8 +26,17 @@ hora, passos do dia (ao vivo pela `fee1`) e histórico de passos e sono, no Andr
 Repo 1 sobre o protocolo Moyoung (`docs/protocolo-crp.md` de lá). O relógio também usa o Bluetooth clássico (chamadas e
 música): no Android o host pede o vínculo ao sistema depois do `READY` (diálogo do sistema; uma falha sai como
 `CLASSIC_BOND_FAILED`) e o remove no `forgetDevice`; no iPhone o app não consegue, e o `connect` pede transport
-bridging. Testado só sem o relógio (a fixture sintética do Repo 1 no simulador iOS e os testes JVM); o roteiro com o
-relógio está no [`example/README.md`](example/README.md#checklist-com-o-condor-reebok-crp).
+bridging. Rodou com o relógio num Android em 2026-11-01 (pareamento, vínculo aceito e recusado, esquecer, bateria,
+firmware, hora, passos de hoje e de ontem, sync e Bluetooth desligado e religado; a gravação virou fixture real no
+Repo 1 e passa também pelo host iOS no simulador) e, no mesmo dia, num iPhone (pareamento com o relógio já pareado
+nos Ajustes, firmware, bateria, hora, Refresh steps, sync e uma reconexão; a gravação virou a fixture
+`ios-pair-commands-sync-reconnect.jsonl` do Repo 1). O usuário validou a fase 1 nas duas plataformas. No iPhone não
+foram gravados o esquecer nem notificações espontâneas (bateria, passos), o que fica como pendência inconclusiva
+([`docs/ios-pendente.md`](docs/ios-pendente.md#condor-reebok-crp)). O `forgetDevice` nunca faz reset de fábrica (o
+reset vira um método separado na fase 2), e o pareamento pelo CDM do Android ficou fora do prazo de 2026-11-05 (ADRs
+33 e 34 do Repo 1). O roteiro com o relógio está no
+[`example/README.md`](example/README.md#checklist-com-o-condor-reebok-crp), e o que falta, na seção 7 do
+[`docs/pendencias.md`](docs/pendencias.md#7-condor-reebok-crp).
 
 ## Início rápido
 

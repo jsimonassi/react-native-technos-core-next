@@ -15,10 +15,11 @@ mudou com essa troca: mesmos métodos, eventos, payloads, ordem e rejeições.
 
 Escopo da PoC: famílias SMA (Mormaii fitGPS), iDO (Mormaii Life Ultra GPS, só as funções básicas) e CRP (Condor
 Reebok, nome anunciado `P85`, firmware `MOY-VS02-2.0.0`; fase 1: pareamento, reconexão, esquecer, bateria, firmware,
-hora, passos e sono), no Android e no iOS (`ios-pendente.md`). Os métodos, eventos e payloads são os mesmos para as
-três famílias e as duas plataformas; as diferenças de comportamento estão em cada item. No iOS o `deviceId` é o UUID do
-periférico, não o MAC, e a falta de autorização do Bluetooth sai como `PERMISSION_DENIED` com `"Missing Bluetooth"`.
-O protocolo do Condor Reebok está no `docs/protocolo-crp.md` do Repo 1.
+hora, passos e sono; validada pelo usuário com o relógio no Android e no iPhone em 2026-11-01), no Android e no iOS
+(`ios-pendente.md`). Os métodos, eventos e payloads são os mesmos para as três famílias e as duas plataformas; as
+diferenças de comportamento estão em cada item. No iOS o `deviceId` é o UUID do periférico, não o MAC, e a falta de
+autorização do Bluetooth sai como `PERMISSION_DENIED` com `"Missing Bluetooth"`. O protocolo do Condor Reebok está no
+`docs/protocolo-crp.md` do Repo 1.
 
 ## Sumário
 
@@ -255,6 +256,12 @@ vínculo: o log traz a dica de esquecer o relógio em Ajustes > Bluetooth. Um pe
 (diálogo aberto) é cancelado sem `onError`: o nativo tenta fechar o diálogo e, se o usuário aceitar mesmo assim, remove o
 vínculo assim que ele aparece.
 
+**O `forgetDevice` nunca faz reset de fábrica** (decisão do usuário de 2026-11-01, ADR 33 do Repo 1). No Condor Reebok,
+o reset (`51 02`) vai ser um método separado, na fase 2; hoje ele não existe no JS. O Core do app Condor manda o reset
+antes do `F8` em todo `disconnectCurrentDevice` (`CRPService.java:269-270` no `v4.3.57`, que chama `disconnect(true)`),
+e todos os botões do app que tiram o relógio chamam esse método: na troca de pacote (fase 4), o adaptador do app
+Condor escolhe o que cada botão chama (`forgetDevice`, o reset ou os dois).
+
 - Resolve: quando a sessão volta a `DISCONNECTED`.
 - Core atual: é o que `disconnectCurrentDevice` faz lá (ver acima). O app Mormaii chama `disconnectCurrentDevice` no
   "esquecer relógio" (`usePairingData`, `disconnectDevice`): ao trocar de pacote, essa chamada vira `forgetDevice`.
@@ -289,13 +296,19 @@ Lê firmware e identificação (comando VERSION `02/0A` no SMA; no CRP, o `5A 01
 
 Mesma leitura de `getDeviceInfo`, mas emite [`onFirmwareInfo`](#onfirmwareinfo), no formato do Core atual.
 
+Cada chamada é uma leitura no relógio: quem quer os dois eventos e chama os dois métodos em seguida lê o firmware duas
+vezes. No Condor Reebok são dois `5A 01` seguidos, como o cartão Relógio do app de exemplo faz no "Ler"
+(`example/src/screens/ConnectionScreen.tsx:43-44`; na gravação real de 2026-11-01, `real@119023` e `@119425` do
+`docs/protocolo-crp.md` do Repo 1, os dois respondidos com `MOY-VS02-2.0.0`).
+
 - Core atual: `getFirmwareInfo(): void` (`NativeCore.ts:51`).
 
 ### `getBatteryStatus(): Promise<void>`
 
 Lê a bateria (comando `02/08` no SMA; `02/01`, a informação básica, no iDO; leitura da characteristic `2A19` no
 CRP). Emite [`onBatteryStatus`](#onbatterystatus) e resolve. Rejeita com `NOT_READY`, `TIMEOUT`, `DISCONNECTED`. O
-Condor Reebok também avisa a bateria sozinho, cerca de uma vez por minuto: sai um `onBatteryStatus` sem pedido.
+Condor Reebok também avisa a bateria sozinho, cerca de uma vez por minuto: sai um `onBatteryStatus` sem pedido
+(confirmado no P85 num Android em 2026-11-01; no iPhone ainda não visto, [`onBatteryStatus`](#onbatterystatus)).
 
 - Core atual: `getBatteryStatus(): void` (`NativeCore.ts:64`). No iOS o `percentage` sai com lixo, porque o
   `NSDictionary` é passado onde se espera `NSInteger` (`SMAService.m:1237-1243`).
@@ -328,7 +341,9 @@ roda, a sessão fica em `SYNCING` (o `state` continua 2) e um serviço em primei
 
 - Condor Reebok: passos como no `refreshSteps` (meias horas e totais do dia; o relógio não guarda distância nem
   calorias por meia hora) e o sono de hoje (`32`; e o de 1 e 2 dias atrás se o relógio responder ao comando legado
-  `33`, sondado uma vez por conexão). Um sono que não responde termina em 4 s sem travar o resto.
+  `33`, sondado uma vez por conexão). Um sono que não responde termina em 4 s sem travar o resto. O P85 com
+  `MOY-VS02-2.0.0` responde ao `33` (2026-11-01): os totais de ontem vêm do relógio, e sem noite os três pedidos de sono
+  voltam vazios na hora; o sync da gravação real levou 5,6 s.
 - Eventos: `onSyncStarted`, `onSyncProgress` (por etapa: 0 no início e `100 * (i + 1) / n` ao fim de cada tipo, então 0, 50 e 100 para passos e sono; `SyncEngine.kt` do Repo 1) e `onSyncFinished`.
 - Resolve: depois de `onSyncFinished`.
 - Rejeita: com o erro que interrompeu o sync (`NOT_READY`, `TIMEOUT`, `DISCONNECTED`, `CANCELLED`...). Falta de
@@ -360,7 +375,9 @@ Emite [`onHistorySleep`](#onhistorysleep) com as noites gravadas localmente, sem
 o sono do fitGPS nunca foi validado em produção. O Life Ultra GPS não tem sono na PoC (vem do protocolo V3): sempre
 `NO_DATA`. No Condor Reebok, o `date` é o dia em que se acorda, com a virada às 20h como na SDK (um sono lido depois
 das 20h vale para o dia seguinte), e `totalSleepMinutes` é leve + profundo + REM, sem o acordado (fase 1 ainda sem
-noite real no relógio de teste).
+noite real no relógio de teste: em 2026-11-01, sem noite, o relógio respondeu vazio aos três pedidos de sono, `real@233291`,
+`@233362` e `@234750` do `docs/protocolo-crp.md` do Repo 1; com essa gravação, o `getHistorySleep` dá `NO_DATA` no teste
+do host iOS, `CoreBridgeReplayTests`, e no aparelho ele não foi chamado).
 
 - Resolve: depois de emitir.
 - Rejeita com `NO_DATA` **e também emite `onError`** (`code: "NO_DATA"`, `method: "getHistorySleep"`) quando não há
@@ -555,6 +572,18 @@ do app Condor, `CRPService.java:1814-1822` no `v4.3.57`, e ainda falta confirmar
 notifica a bateria sozinho, cerca de uma vez por minuto (na captura do app Condor, `0x32` = 50 % e depois `0x31`):
 cada aviso vira um `onBatteryStatus` sem pedido, com o mesmo formato.
 
+Confirmado com o P85 em 2026-11-01 (gravação real do Repo 1, `real@10306` a `@310025` no `docs/protocolo-crp.md` de
+lá): `{ "percentage": 43, "charging": false, "battery": "43%" }` a cada cerca de 60 s, sem nenhum pedido, perto da
+virada de cada minuto do relógio; não chega um aviso ao conectar, e o ritmo não recomeça com um novo pareamento nem com
+o Bluetooth religado. Consequência para quem assina o evento: a bateria aparece até um minuto depois do `READY`, antes
+de qualquer `getBatteryStatus` (no app de exemplo, o cartão Bateria já estava preenchido antes do "Ler"), e continua
+sendo atualizada sem chamada. Para o valor na hora, chame `getBatteryStatus`.
+
+No iPhone, no mesmo dia, a gravação (`ios-pair-commands-sync-reconnect.jsonl` do Repo 1) não teve nenhum aviso: só o
+`onBatteryStatus` do `getBatteryStatus`. Ainda é inconclusivo, não uma falha confirmada (a única virada de minuto da
+janela gravada coincidiu com o acerto de hora da conexão, e não há log do iPhone para ver a CCCD da `2A19`); até um teste
+que feche isso (`ios-pendente.md`, Condor Reebok), não conte com o aviso no iOS e chame `getBatteryStatus`.
+
 Core atual: mesmo formato (`EventHandler.kt:290-298`).
 
 ### `onPedometer`
@@ -583,7 +612,11 @@ notifica `FEE1` sozinho quando os passos mudam (cerca de uma vez por segundo and
 atual e os totais do dia, e sai um `onPedometer` sem pedido, no máximo um a cada 2 s. Se o aviso chega antes de
 qualquer `refreshSteps` ou sync na conexão, o nativo pede uma leitura dos passos uma vez só e a faz 2 s depois do
 aviso (andando, os avisos seguintes não adiam a leitura), emite o `onPedometer` dela e, a partir daí, os dos avisos.
-Uma leitura que falha só é tentada de novo 30 s depois.
+Uma leitura que falha só é tentada de novo 30 s depois. Visto no P85 em 2026-11-01: seis avisos em rajada (16 a 21
+passos) geraram uma leitura só, 2,35 s depois do primeiro, e um `onPedometer` sem pedido; um `refreshSteps` pedido
+durante ela rodou logo depois. Os avisos seguintes, com a leitura já feita, ainda não foram vistos no relógio. A meia
+hora corrente não vem no histórico do relógio enquanto está aberta; mesmo assim, o `pedometer` de hoje é o total do
+relógio (`FEE1`), e o dia de hoje no `onHistoryPedometer` também.
 
 Core atual: `{ pedometer }`, com o `step` do registro mais recente lido pelo polling (`SMAService.java:387-405`). No
 fitGPS 0.2.1 esse valor é o acumulado do dia (ADR 1 do Repo 1), o mesmo número que este evento traz e que a tela do
