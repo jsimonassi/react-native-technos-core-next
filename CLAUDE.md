@@ -17,19 +17,26 @@ Guia curto para agentes e para quem chega agora. O que a biblioteca faz e como c
   automática e o ciclo de vida do módulo moram no `CoreBridge` (`:bridge`). Se a mudança mexe em algum desses, ela vai
   para lá.
 - Escopo da PoC: famílias SMA (Mormaii fitGPS), iDO (Mormaii Life Ultra GPS, só as funções básicas) e CRP (Condor
-  Reebok, nome `P85`, fase 1: pareamento, reconexão, esquecer, bateria, firmware, hora, passos e sono), no Android e no
-  iOS (o iOS rodou num iPhone com os dois primeiros relógios em 2026-10-30, em Release, sem reconexão, segundo plano nem
-  restauração; [`docs/ios-pendente.md`](docs/ios-pendente.md#o-que-o-iphone-mostrou-2026-10-30)). O Condor Reebok rodou
-  com o relógio no Android e no iPhone em 2026-11-01 e o usuário validou a fase 1 nas duas plataformas (gravações em
-  `fixtures/real/condorreebok/MOY-VS02-2.0.0/` do Repo 1; o que o iPhone não cobriu, como o esquecer e as notificações
-  espontâneas, está em [`docs/ios-pendente.md`](docs/ios-pendente.md#condor-reebok-crp)). Os perfis, os nomes do
-  scan, os UUIDs e os CCCD vêm do Repo 1 (`Profiles.all`); nada aqui é escrito por família. O host lê só quirks de
+  Reebok, nome `P85`; fase 1: pareamento, reconexão, esquecer, bateria, firmware, hora, passos e sono; fase 2, desde
+  2026-11-02 e ainda sem validação no relógio: os 23 métodos de ajustes, mensagens e interações do Core, o
+  `resetDevice` e os 4 eventos, [`docs/api-js.md`](docs/api-js.md#ajustes-mensagens-e-interações-fase-2)), no Android
+  e no iOS (o iOS rodou num iPhone com os dois primeiros relógios em 2026-10-30, em Release, sem reconexão, segundo
+  plano nem restauração; [`docs/ios-pendente.md`](docs/ios-pendente.md#o-que-o-iphone-mostrou-2026-10-30)). O
+  Condor Reebok rodou com o relógio no Android e no iPhone em 2026-11-01 e o usuário validou a fase 1 nas duas
+  plataformas (gravações em `fixtures/real/condorreebok/MOY-VS02-2.0.0/` do Repo 1; as notificações espontâneas no
+  iPhone foram confirmadas na sessão seguinte, às 23:20; o que o iPhone não cobriu, como o esquecer, está em
+  [`docs/ios-pendente.md`](docs/ios-pendente.md#condor-reebok-crp)). Os perfis, os nomes do scan, os UUIDs e os CCCD
+  vêm do Repo 1 (`Profiles.all`); nada aqui é escrito por família. O host lê só quirks de
   plataforma do perfil: `bleNamePrefixes` (scan Android sem filtro),
   `classicBond` (quem decide é o `CoreBridge`; o host cria e remove o vínculo BR/EDR, `ble/ClassicBonder` no Android,
-  "não suportado" no iOS) e `iosTransportBridging` (opção do `connect` no iOS). Fora: DFU, notificações, chamadas (além
-  do vínculo clássico), atividades, o pareamento pelo CDM do Android (fora do prazo de 2026-11-05, ADR 34 do Repo 1),
-  outras famílias e modelos, CI e publicação. O `forgetDevice` nunca faz reset de fábrica: o reset (`51 02`) vira um
-  método separado na fase 2 (ADR 33 do Repo 1).
+  "não suportado" no iOS) e `iosTransportBridging` (opção do `connect` no iOS). Fora: DFU, o encaminhamento de
+  notificações do Android (fatia própria depois da fase 2), as ligações pelo `0x41` (só o HFP do vínculo clássico), o
+  encontrar celular nativo (só o evento `onFindPhone`), a câmera disparada pelo relógio com o app em segundo plano no
+  Android, a geolocalização do clima (fase 4), atividades, frequência cardíaca e estresse (fase 3), o pareamento pelo
+  CDM do Android (fora do prazo de 2026-11-05, ADR 34 do Repo 1), outras famílias e modelos, CI e publicação (decisões
+  do usuário, ADR 37 do Repo 1). O `forgetDevice` nunca faz reset de fábrica: o reset (`51 02`) é o `resetDevice`, um
+  método separado (ADR 33 do Repo 1). Todo comportamento diferente da produção fica em
+  [`docs/desvios-de-producao.md`](docs/desvios-de-producao.md).
 - O `TechnosWareCore` e o app Mormaii são só referência de leitura; cite-os (`arquivo:linha`), não mude nada lá.
 
 ## Dependência do Repo 1 (Maven local)
@@ -216,6 +223,7 @@ com teste em `ios/Tests/`; o host inteiro é testado com as gravações reais do
 | GATT, fila, MTU, CCCD, write type, autoConnect, scan, vínculo Bluetooth clássico, Bluetooth on/off | [`docs/transporte-android.md`](docs/transporte-android.md) |
 | host iOS: peça, decisão, limite, algo validado ou descoberto no iPhone | [`docs/ios-pendente.md`](docs/ios-pendente.md) ("iOS: estado e pendências"), o README da pasta em `ios/CoreNext/` e, se mudou como rodar, [`ios/README.md`](ios/README.md) |
 | pendência do host ou da integração com o app Mormaii (watchdog do sync, polling, `deviceId`, eventos sem equivalente) | [`docs/pendencias.md`](docs/pendencias.md) |
+| comportamento diferente da produção (`TechnosWareCore` na tag `v4.3.57` ou o app Condor de produção): desvio novo, revisto ou desfeito | [`docs/desvios-de-producao.md`](docs/desvios-de-producao.md) (uma entrada `DP-nn` com fonte, motivo, impacto, como voltar e status) |
 | como rodar (Android ou iPhone), permissões, abas, checklist com o relógio | [`example/README.md`](example/README.md) |
 | arquivos do `src/` | [`src/README.md`](src/README.md) |
 | hipótese do protocolo confirmada ou derrubada no relógio | `docs/decisoes.md` e o `docs/protocolo-<família>.md` do Repo 1 (`sma`, `ido`, `crp`) |

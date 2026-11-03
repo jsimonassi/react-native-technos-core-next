@@ -1,11 +1,12 @@
 // TurboModule `NativeCoreNext` no iOS: uma casca sobre o `TWPCoreBridge` do Repo 1, par do `NativeCoreNextModule.kt`.
 //
-// Cada método do spec (`src/specs/NativeCoreNext.ts`, 23 métodos) embrulha o par resolve/reject do React Native numa
-// `TCNPromiseCompletion` (Swift, `CoreNext.swift`: todo valor resolvido passa pelo `FoundationConverter`, e o
-// `isConnected` chega ao JS como `true`/`false`) e chama o seletor de mesmo nome do `TWPCoreBridge` do processo. O
-// módulo é o `TWPCoreEventSink`: converte cada payload com o `TWPFoundationConverter` e chama o `emitOnX:` gerado pelo
-// codegen no `NativeCoreNextSpecBase`. Nenhuma regra mora aqui; a forma é a do `bridge/objc-interop/MinimalTurboModule.mm`
-// do Repo 1, que o `./gradlew check` de lá compila.
+// Cada método do spec (`src/specs/NativeCoreNext.ts`, 47 métodos: os 23 da fase 1 e os 24 de ajustes, mensagens e
+// interações da fase 2) embrulha o par resolve/reject do React Native numa `TCNPromiseCompletion` (Swift,
+// `CoreNext.swift`: todo valor resolvido passa pelo `FoundationConverter`, e o `isConnected` chega ao JS como
+// `true`/`false`) e chama o seletor de mesmo nome do `TWPCoreBridge` do processo. O módulo é o `TWPCoreEventSink`:
+// converte cada payload com o `TWPFoundationConverter` e chama o `emitOnX:` gerado pelo codegen no
+// `NativeCoreNextSpecBase` (17 eventos). Nenhuma regra mora aqui; a forma é a do
+// `bridge/objc-interop/MinimalTurboModule.mm` do Repo 1, que o `./gradlew check` de lá compila.
 //
 // Sem header público de propósito: com `DEFINES_MODULE`, um `.h` entraria no umbrella do módulo `TechnosCoreNext`, e o
 // `import TechnosCoreNext` do Swift do app tentaria compilar os headers C++ do codegen.
@@ -31,6 +32,27 @@ NS_ASSUME_NONNULL_BEGIN
 static id<TWPCoreCompletion> CNCompletion(RCTPromiseResolveBlock resolve, RCTPromiseRejectBlock reject)
 {
 	return [[TCNPromiseCompletion alloc] initWithResolve:resolve reject:reject];
+}
+
+/// `YES` (e rejeita com `INVALID_ARGUMENT`, sem chamar o controlador) quando um argumento de objeto chega `nil`: o
+/// `null`/`undefined` do JS no lugar do texto, do dicionário ou da lista inteiros, que o React Native 0.81 entrega como
+/// `nil` (`RCTTurboModule.mm`, `convertJSIValueToObjCObject`, sem a flag `enableModuleArgumentNSNullConversionIOS`). O
+/// `CoreBridge` do Repo 1 recebe tipos não nulos, e um `nil` vira um `kotlin.NullPointerException` não capturado, que
+/// encerra o processo (conferido no simulador em 2026-11-02). Sem `onError`, que é evento do controlador; o desvio e
+/// a correção no `CoreBridge` estão no DP-100 do `docs/desvios-de-producao.md`. Sem `reject` (método `void`), só loga.
+static BOOL CNRejectNil(id _Nullable value, NSString *argument, SEL method, RCTPromiseRejectBlock _Nullable reject)
+{
+	if (value != nil) {
+		return NO;
+	}
+	NSString *jsMethod = [NSStringFromSelector(method) componentsSeparatedByString:@":"].firstObject;
+	NSString *message = [NSString stringWithFormat:@"%@ must not be null", argument];
+	NSString *outcome = reject != nil ? @"rejected with INVALID_ARGUMENT" : @"ignored";
+	[TCNCoreNext logWithTag:[NSString stringWithFormat:@"RCTNativeCoreNext/%@", jsMethod] message:[NSString stringWithFormat:@"%@; %@ before the CoreBridge", message, outcome]];
+	if (reject != nil) {
+		reject(TWPHostErrorCodes.shared.INVALID_ARGUMENT, message, nil);
+	}
+	return YES;
 }
 
 /// A instância que o `CoreBridge` tem como sink agora (a última que recebeu `attachSink:`), no processo inteiro; só
@@ -193,6 +215,14 @@ static NSInteger sSinkMovesToLog = 20;
 		[self emitOnSyncProgress:value];
 	} else if ([name isEqualToString:@"onSyncFinished"]) {
 		[self emitOnSyncFinished:value];
+	} else if ([name isEqualToString:@"onFindPhone"]) {
+		[self emitOnFindPhone:value];
+	} else if ([name isEqualToString:@"onTakeAPicture"]) {
+		[self emitOnTakeAPicture:value];
+	} else if ([name isEqualToString:@"onOpenCameraMode"]) {
+		[self emitOnOpenCameraMode:value];
+	} else if ([name isEqualToString:@"onDeviceRequestedCameraMode"]) {
+		[self emitOnDeviceRequestedCameraMode:value];
 	} else if ([name isEqualToString:@"onError"]) {
 		[self emitOnError:value];
 	} else if ([name isEqualToString:@"onLog"]) {
@@ -230,11 +260,17 @@ static NSInteger sSinkMovesToLog = 20;
 
 - (void)pairDevice:(NSString *)deviceId name:(NSString *)name resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject
 {
+	if (CNRejectNil(deviceId, @"deviceId", _cmd, reject) || CNRejectNil(name, @"name", _cmd, reject)) {
+		return;
+	}
 	[[self coreBridgeFor:_cmd] pairDeviceDeviceId:deviceId name:name completion:CNCompletion(resolve, reject)];
 }
 
 - (void)startPairingAttempt:(NSString *)deviceId name:(NSString *)name resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject
 {
+	if (CNRejectNil(deviceId, @"deviceId", _cmd, reject) || CNRejectNil(name, @"name", _cmd, reject)) {
+		return;
+	}
 	[[self coreBridgeFor:_cmd] startPairingAttemptDeviceId:deviceId name:name completion:CNCompletion(resolve, reject)];
 }
 
@@ -246,6 +282,11 @@ static NSInteger sSinkMovesToLog = 20;
 - (void)forgetDevice:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject
 {
 	[[self coreBridgeFor:_cmd] forgetDeviceCompletion:CNCompletion(resolve, reject)];
+}
+
+- (void)resetDevice:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject
+{
+	[[self coreBridgeFor:_cmd] resetDeviceCompletion:CNCompletion(resolve, reject)];
 }
 
 - (void)isConnected:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject
@@ -304,8 +345,184 @@ static NSInteger sSinkMovesToLog = 20;
 
 - (void)deletedSavedData:(NSArray *)filteredArrayData category:(double)category
 {
+	if (CNRejectNil(filteredArrayData, @"filteredArrayData", _cmd, nil)) {
+		return;
+	}
 	// O NSArray do TurboModule vai como está: strings (wrapper do Core atual) ou mapas do spec.
 	[[self coreBridgeFor:_cmd] deletedSavedDataFilteredArrayData:filteredArrayData category:category];
+}
+
+#pragma mark - Ajustes, mensagens e interações (fase 2)
+
+// Os dicionários e as listas vão como chegam do React Native, sem cópia nem conversão. Com as flags padrão do RN 0.81.4
+// (`enableModuleArgumentNSNullConversionIOS` desligada), um `null`/`undefined` dentro de uma lista chega como `NSNull`
+// (`RCTTurboModule.mm:123-125`) e, dentro de um dicionário, a chave nem chega (`:141-145`). O `SettingsMapper` do Repo 1
+// trata os dois como ausente (`isNullLike`, D7 da fase 2), e a validação de cada campo (`INVALID_ARGUMENT` com `onError`
+// antes do reject) também mora lá. Só o argumento inteiro `nil` para aqui (`CNRejectNil`), porque o framework não o
+// recebe.
+
+- (void)setUserInfo:(NSDictionary *)userInfo resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject
+{
+	if (CNRejectNil(userInfo, @"userInfo", _cmd, reject)) {
+		return;
+	}
+	[[self coreBridgeFor:_cmd] setUserInfoUserInfo:userInfo completion:CNCompletion(resolve, reject)];
+}
+
+- (void)setGoalsV2:(NSDictionary *)goals resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject
+{
+	if (CNRejectNil(goals, @"goals", _cmd, reject)) {
+		return;
+	}
+	[[self coreBridgeFor:_cmd] setGoalsV2Goals:goals completion:CNCompletion(resolve, reject)];
+}
+
+- (void)set12HourFormat:(BOOL)enabled resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject
+{
+	[[self coreBridgeFor:_cmd] set12HourFormatEnabled:enabled completion:CNCompletion(resolve, reject)];
+}
+
+- (void)setTemperatureUnit:(NSString *)temp resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject
+{
+	if (CNRejectNil(temp, @"temp", _cmd, reject)) {
+		return;
+	}
+	[[self coreBridgeFor:_cmd] setTemperatureUnitTemp:temp completion:CNCompletion(resolve, reject)];
+}
+
+- (void)setDistanceUnit:(NSDictionary *)distanceUnit resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject
+{
+	if (CNRejectNil(distanceUnit, @"distanceUnit", _cmd, reject)) {
+		return;
+	}
+	[[self coreBridgeFor:_cmd] setDistanceUnitDistanceUnit:distanceUnit completion:CNCompletion(resolve, reject)];
+}
+
+- (void)setScreenTime:(double)time resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject
+{
+	[[self coreBridgeFor:_cmd] setScreenTimeTime:time completion:CNCompletion(resolve, reject)];
+}
+
+- (void)setDeviceBatterySaving:(BOOL)enabled resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject
+{
+	[[self coreBridgeFor:_cmd] setDeviceBatterySavingEnabled:enabled completion:CNCompletion(resolve, reject)];
+}
+
+- (void)setSosHelp:(BOOL)isEnabled resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject
+{
+	[[self coreBridgeFor:_cmd] setSosHelpIsEnabled:isEnabled completion:CNCompletion(resolve, reject)];
+}
+
+- (void)setGestureControlV2:(NSDictionary *)gestureControlMap resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject
+{
+	if (CNRejectNil(gestureControlMap, @"gestureControlMap", _cmd, reject)) {
+		return;
+	}
+	[[self coreBridgeFor:_cmd] setGestureControlV2GestureControlMap:gestureControlMap completion:CNCompletion(resolve, reject)];
+}
+
+- (void)setMenstrual:(NSDictionary *)menstrual resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject
+{
+	if (CNRejectNil(menstrual, @"menstrual", _cmd, reject)) {
+		return;
+	}
+	[[self coreBridgeFor:_cmd] setMenstrualMenstrual:menstrual completion:CNCompletion(resolve, reject)];
+}
+
+- (void)setHeartRateAutomaticCheck:(BOOL)enabled startHour:(NSString *)startHour endHour:(NSString *)endHour interval:(double)interval resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject
+{
+	if (CNRejectNil(startHour, @"startHour", _cmd, reject) || CNRejectNil(endHour, @"endHour", _cmd, reject)) {
+		return;
+	}
+	[[self coreBridgeFor:_cmd] setHeartRateAutomaticCheckEnabled:enabled startHour:startHour endHour:endHour interval:interval completion:CNCompletion(resolve, reject)];
+}
+
+- (void)setStressAutomaticCheck:(NSDictionary *)automaticStress resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject
+{
+	if (CNRejectNil(automaticStress, @"automaticStress", _cmd, reject)) {
+		return;
+	}
+	[[self coreBridgeFor:_cmd] setStressAutomaticCheckAutomaticStress:automaticStress completion:CNCompletion(resolve, reject)];
+}
+
+- (void)setNotDisturb:(NSDictionary *)notDisturb resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject
+{
+	if (CNRejectNil(notDisturb, @"notDisturb", _cmd, reject)) {
+		return;
+	}
+	[[self coreBridgeFor:_cmd] setNotDisturbNotDisturb:notDisturb completion:CNCompletion(resolve, reject)];
+}
+
+- (void)setWaterReminderV2:(NSDictionary *)waterReminder resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject
+{
+	if (CNRejectNil(waterReminder, @"waterReminder", _cmd, reject)) {
+		return;
+	}
+	[[self coreBridgeFor:_cmd] setWaterReminderV2WaterReminder:waterReminder completion:CNCompletion(resolve, reject)];
+}
+
+- (void)setWalkReminder:(NSDictionary *)walkReminder resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject
+{
+	if (CNRejectNil(walkReminder, @"walkReminder", _cmd, reject)) {
+		return;
+	}
+	[[self coreBridgeFor:_cmd] setWalkReminderWalkReminder:walkReminder completion:CNCompletion(resolve, reject)];
+}
+
+- (void)setAlarm:(NSArray *)alarmArray resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject
+{
+	if (CNRejectNil(alarmArray, @"alarmArray", _cmd, reject)) {
+		return;
+	}
+	[[self coreBridgeFor:_cmd] setAlarmAlarmArray:alarmArray completion:CNCompletion(resolve, reject)];
+}
+
+- (void)setWorldClock:(NSArray *)worldClockList resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject
+{
+	if (CNRejectNil(worldClockList, @"worldClockList", _cmd, reject)) {
+		return;
+	}
+	[[self coreBridgeFor:_cmd] setWorldClockWorldClockList:worldClockList completion:CNCompletion(resolve, reject)];
+}
+
+- (void)manageNotifications:(NSDictionary *)notifications shouldShowNotificationModal:(BOOL)shouldShowNotificationModal resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject
+{
+	if (CNRejectNil(notifications, @"notifications", _cmd, reject)) {
+		return;
+	}
+	// O segundo argumento vai como chegou; o `CoreBridge` o ignora (DP-79 do `docs/desvios-de-producao.md`).
+	[[self coreBridgeFor:_cmd] manageNotificationsNotifications:notifications shouldShowNotificationModal:shouldShowNotificationModal completion:CNCompletion(resolve, reject)];
+}
+
+- (void)setAddressBook:(NSArray *)contactList resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject
+{
+	if (CNRejectNil(contactList, @"contactList", _cmd, reject)) {
+		return;
+	}
+	[[self coreBridgeFor:_cmd] setAddressBookContactList:contactList completion:CNCompletion(resolve, reject)];
+}
+
+- (void)syncWeather:(NSArray *)weatherList resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject
+{
+	if (CNRejectNil(weatherList, @"weatherList", _cmd, reject)) {
+		return;
+	}
+	[[self coreBridgeFor:_cmd] syncWeatherWeatherList:weatherList completion:CNCompletion(resolve, reject)];
+}
+
+- (void)vibrateDevice:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject
+{
+	[[self coreBridgeFor:_cmd] vibrateDeviceCompletion:CNCompletion(resolve, reject)];
+}
+
+- (void)openCameraMode:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject
+{
+	[[self coreBridgeFor:_cmd] openCameraModeCompletion:CNCompletion(resolve, reject)];
+}
+
+- (void)closeCameraMode:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject
+{
+	[[self coreBridgeFor:_cmd] closeCameraModeCompletion:CNCompletion(resolve, reject)];
 }
 
 #pragma mark - Logs

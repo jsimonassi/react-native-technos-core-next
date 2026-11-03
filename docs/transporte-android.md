@@ -193,11 +193,16 @@ Na API 33+ só a sobrecarga nova (com `value`) é tratada; a antiga retorna cedo
 A remontagem de frames (L1 de 8 bytes em notificação própria, `SmaManager.java:506-528`) é da sessão. No Condor Reebok
 as notificações vêm de quatro characteristics (`fee3`, `fee1`, `2a19`, `2a37`), cada uma com o UUID dela; a sessão
 manda as de `fee3` para a remontagem de frames do driver e as outras para o canal lateral (`sideNotify`) com a origem.
-A `2a19` chega sozinha cerca de uma vez por minuto (em `condor-app-pair-sync.jsonl`, `0x32` em atMs 48921) e a `fee1` a
-cada passo andando (em `condor-app-reconnect-sync-walk.jsonl`, de atMs 106148 a 136148). Com este host (2026-11-01): a
+A `2a19` chega sozinha cerca de uma vez por minuto (em `condor-app-pair-sync.jsonl`, `0x32` em atMs 48921) e a `fee1`
+andando, quando o contador do relógio muda, e não a cada passo (em `condor-app-reconnect-sync-walk.jsonl`, de atMs
+106148 a 136148: de 0 para 16, depois +1 ou +2 por aviso, com saltos de +9, +7 e, em 136148, depois de 12 s sem
+aviso, +18). Com este host (2026-11-01): a
 `2a19` com `0x2B` (43 %) em `real@10306`, `@129963`, `@190422`, `@250823` e `@310025`, perto da virada de cada minuto;
 a `fee1` em rajada, quatro notificações em 6 ms (`real@220546` a `@220552`) e duas um segundo depois; e a `2a37` (82 a
-78 bpm) a cada cerca de 1 s, de `real@20285` a `@29218`, só na conexão em que o vínculo clássico foi aceito. Todas
+78 bpm) a cada cerca de 1 s, de `real@20285` a `@29218`, só na conexão em que o vínculo clássico foi aceito (no iPhone,
+numa sessão de 2026-11-01 às 23:20, uma rajada parecida de `2a37` veio sem pedido de vínculo do app, o que indica
+que ela não depende de o vínculo ser criado na conexão (sem confirmar: o começo dessa conexão não está gravado); a
+causa não se sabe, `docs/protocolo-crp.md` do Repo 1, seção 13). Todas
 chegaram ao canal certo com o UUID de origem. No fitGPS 0.2.1
 com MTU 23, o cabeçalho L1 de 8 bytes chegou sempre sozinho numa notificação (79 de 79 frames RX de dados na fixture
 `technos-watch-protocol/fixtures/real/fitgps/0.2.1/pair-commands-bt-reconnect-sync.jsonl`, ex.: `AB0000061B000000` em atMs 2424 e o resto do BIND_BACK em

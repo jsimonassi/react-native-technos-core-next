@@ -1,12 +1,14 @@
 /**
- * Apelidos com os nomes de tipo do Core atual (`react-native-technos-ware-core`), para o app Mormaii trocar
- * de pacote sem renomear tipos. Cada apelido aponta para o tipo novo de `./events`.
+ * Apelidos com os nomes de tipo do Core atual (`react-native-technos-ware-core`), para os apps Mormaii e Condor
+ * trocarem de pacote sem renomear tipos. Cada apelido aponta para o tipo novo de `./events`. Os tipos de entrada dos
+ * ajustes já têm os nomes do Core (`./watchSettings`) e não precisam de apelido.
  *
  * Diferenças de forma em relação ao Core atual estão no TSDoc de cada apelido e em `docs/api-js.md`.
  */
 import type {
 	BatteryStatusEvent,
 	ConnectStateChangedEvent,
+	FindPhoneEvent,
 	FirmwareInfoEvent,
 	HistoryPedometerEvent,
 	HistorySleepEvent,
@@ -62,3 +64,6 @@ export type TechnosSyncProgress = SyncProgressEvent;
 
 /** `TechnosSavedItemDelete` do Core atual, mesma forma. */
 export type TechnosSavedItemDelete = SavedItemDelete;
+
+/** `TechnosFindPhoneStatus` do Core atual (`type/eventData/deviceInfo.ts:28-30`), mesma forma. */
+export type TechnosFindPhoneStatus = FindPhoneEvent;

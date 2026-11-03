@@ -10,14 +10,17 @@ testes e o app: [`../ios/README.md`](../ios/README.md). O Condor Reebok (famíli
 2026-10-31, e rodou com o relógio num Android e num iPhone em 2026-11-01; o usuário validou a fase 1 nas duas
 plataformas ("Teste feito no iOS e funcionando como esperado"). As duas gravações passam pelo host iOS no simulador. O
 que o host faz por ele, o que o iPhone mostrou e o que falta ver estão em [Condor Reebok (CRP)](#condor-reebok-crp).
-Fontes de referência citadas: Core iOS atual (`TechnosWareCore/ios/smaBluetooth/SMAService.m`), SDK SMA iOS
+A fase 2 do Condor Reebok (os 24 métodos de ajustes, mensagens e interações e os 4 eventos) entrou no host iOS em
+2026-11-02, sem mudança de plataforma, e por enquanto só foi conferida no simulador
+([Fase 2](#fase-2-ajustes-mensagens-e-interações)). Fontes de referência citadas: Core iOS atual
+(`TechnosWareCore/ios/smaBluetooth/SMAService.m`), SDK SMA iOS
 (`TechnosWareCore/examples/basic/ios/Pods/SmaTechnosIosSdk/BLEAPI/SmaBLE.m`) e o header gerado do XCFramework.
 
 ## Peças
 
 | Peça | Onde | Papel | Par no Android |
 |---|---|---|---|
-| `RCTNativeCoreNext` | `ios/CoreNext/turbomodule/RCTNativeCoreNext.mm` (ObjC++) | Conforma ao `NativeCoreNextSpec` do codegen; cada um dos 23 métodos embrulha resolve/reject numa `TCNPromiseCompletion` e chama o seletor de mesmo nome do `TWPCoreBridge`; é o `TWPCoreEventSink`. Sem regra. | `NativeCoreNextModule` |
+| `RCTNativeCoreNext` | `ios/CoreNext/turbomodule/RCTNativeCoreNext.mm` (ObjC++) | Conforma ao `NativeCoreNextSpec` do codegen; cada um dos 47 métodos (23 da fase 1 e 24 da fase 2) embrulha resolve/reject numa `TCNPromiseCompletion` e chama o seletor de mesmo nome do `TWPCoreBridge`; é o `TWPCoreEventSink` (17 eventos). Sem regra, exceto o `CNRejectNil`: argumento inteiro `nil` rejeita `INVALID_ARGUMENT` antes do framework (DP-100). | `NativeCoreNextModule` |
 | `CoreNext`, `PromiseCompletion` | `ios/CoreNext/CoreNext.swift` | `bootstrap(launchOptions:)` (restauração), `sharedBridge()`, `log(tag:message:)`; a completion que passa todo valor pelo `FoundationConverter`. | `NativeCoreNextPackage`, `PromiseCompletion` |
 | `CoreGraph` | `ios/CoreNext/CoreGraph.swift` | Um por processo: `WatchSession(transport:logger:store:)`, `CoreBridge(session:logger:host:)`, os stores, o logger, o transporte; repassa Bluetooth, scan e o resultado do vínculo clássico ao controlador; dá ao transporte as opções do `connect` pelo perfil da sessão. | `CoreGraph` |
 | `IosCoreHost` | `ios/CoreNext/IosCoreHost.swift` | O `CoreHost` (o vínculo clássico responde "não suportado"). | `AndroidCoreHost` (e `ble/ClassicBonder`) |
@@ -286,8 +289,13 @@ que o host iOS faz de diferente.
   além do `fee3` dos frames, nesta ordem. No iOS, como no Android, só chega ao app a notificação de uma characteristic
   assinada (`setNotifyValue`): é por isso que a `2a19` entra na lista (o aviso de bateria espontâneo, uma vez por
   minuto). O transporte acha a characteristic em qualquer serviço descoberto; uma falha nessas três não derruba o
-  pareamento (a sessão loga WARN). **No iPhone (2026-11-01), nenhuma notificação lateral foi gravada** (nem `2a19`,
-  nem `fee1`, nem `2a37`); o resultado é inconclusivo, não uma falha confirmada (motivos e teste pedido abaixo).
+  pareamento (a sessão loga WARN). **No iPhone (2026-11-01)**, a gravação das 17:04 não teve nenhuma notificação
+  lateral (nem `2a19`, nem `fee1`, nem `2a37`), e a segunda sessão, às 23:20 (`ios-walk@<atMs>` no Repo 1, não
+  versionada), teve as três, cada uma na sua characteristic: `2a19` × 8, `fee1` × 14 e `2a37` × 10
+  ([abaixo](#o-que-o-iphone-mostrou-do-condor-reebok-2026-11-01)). Isso indica que as assinaturas estavam ativas
+  nessa conexão, sem confirmar: a regra do iOS citada acima não tem fonte aqui, o `CentralTransport` repassa toda
+  notificação sem olhar o `isNotifying` (`didUpdateValueFor`) e o P85 manda a `2a19` mesmo sem a CCCD escrita
+  (`docs/protocolo-crp.md` do Repo 1, seção 2); as linhas de status das CCCDs continuam sem registro, porque não há log.
 - **Escrita sem resposta no `fee2`.** A characteristic declara só `writeWithoutResponse` (cabeçalho `gatt` da fixture de
   referência `condor-app-pair-sync.jsonl` do Repo 1), e o driver pede `WITHOUT_RESPONSE`: o `effectiveWriteType` usa o
   tipo pedido, sem WARN. Os frames da fase 1 cabem num pacote; o ritmo (20 ms entre pedaços, cerca de 200 ms depois de
@@ -307,8 +315,10 @@ noite, a meia hora corrente fora do histórico enquanto está aberta e a bateria
 (`docs/protocolo-crp.md` do Repo 1, seções 2 e 5 a 9, `real@<atMs>`). O iPhone repetiu o handshake de versão (com os
 mesmos bytes; o instante do `READY` não está gravado, sem log), o `33 01` legado e os ecos vazios do sono, e mostrou a
 meia hora de 16:30 já fechada (21 no `59 01`). Não são observáveis nesta gravação: o `READY` em cerca de 1 s, a regra
-da meia hora aberta (a de 17:00 teve 0 passo, e o `FEE1` era a soma das fechadas) e o aviso de bateria (inconclusivo,
-[abaixo](#o-que-o-iphone-mostrou-do-condor-reebok-2026-11-01)). Do que é da plataforma, o iPhone mostrou o MTU (515 no
+da meia hora aberta (a de 17:00 teve 0 passo, e o `FEE1` era a soma das fechadas) e o aviso de bateria. Os dois
+apareceram na segunda sessão, às 23:20: o aviso de bateria a cada cerca de 60 s (8 de 8 viradas de minuto), como no
+Android, e os 85 passos novos na meia hora aberta de 23:00, fora do `59`
+([abaixo](#o-que-o-iphone-mostrou-do-condor-reebok-2026-11-01)). Do que é da plataforma, o iPhone mostrou o MTU (515 no
 cabeçalho); o tipo das escritas no `fee2` (sem resposta) vem do teste do host no simulador e só o log confirmaria no
 aparelho. O pedido de pareamento do sistema, o efeito do transport bridging e as CCCDs continuam sem prova.
 
@@ -355,15 +365,20 @@ Sem log, o que só ele mostraria (descoberta, CCCDs, `requestMtu`, o WARN do ví
   `01` sem pedido de vínculo do app (pela hipótese do Repo 1, o link clássico abrindo com a chave guardada; se ele abriu
   e quem o abriu, o relógio ou o próprio iOS, não se sabe sem log nem captura do BR/EDR). Depois vieram `F9 02 00` duas vezes e `F9 02 01` quatro vezes, só no log.
 - **Não coberto**: o `forgetDevice` (nenhum `F8`), se o iOS pediu pareamento, o efeito do transport bridging, a causa
-  da reconexão do fim (Bluetooth desligado, fora de alcance ou Reconnect last), fora de alcance, carregador, passos ao
-  vivo andando, uma noite de sono, segundo plano e restauração.
-- **Inconclusivo: nenhuma notificação espontânea.** Nenhum `2a19`, `fee1` ou `2a37` na gravação. Não é falha
-  confirmada: os passos não mudaram (no Android a `fee1` só notificou com passos novos); a única virada de minuto da
-  janela gravada da conexão 1 caiu junto com o `31` do handshake (no Android, o aviso de bateria vem logo depois da
-  virada do minuto); não se sabe quando o link 1 caiu; e, sem log, não se sabe se as três CCCDs laterais voltaram com
-  status 0. Pedido ao usuário em 2026-11-01: com o relógio conectado e o app aberto, andar uns 20 passos, ficar parado
-  2 min e exportar, ou mandar o log do iPhone (Console.app com as mensagens de informação; cada CCCD tem uma linha
-  `CentralTransport/enableNotifications characteristic=… status=…`). Caixa em [Pendências](#pendências).
+  da reconexão do fim (Bluetooth desligado, fora de alcance ou Reconnect last), fora de alcance, carregador, uma noite
+  de sono, segundo plano e restauração. Os passos ao vivo andando vieram na segunda sessão (abaixo).
+- **Notificações espontâneas: resolvido (2026-11-01, 23:20 a 23:28).** O usuário fez o teste curto com o app aberto e
+  relatou: "Testado novamente no iPhone e sim, está atualizando automaticamente." A gravação dessa segunda sessão tem
+  a `2a19` a cada virada de minuto, a `fee1` só quando os passos mudaram, sem releitura, e uma rajada de `2a37`
+  ([A segunda sessão](#a-segunda-sessão-no-iphone-2026-11-01-2320-não-versionada)). O que segue é o registro da
+  gravação das 17:04, que continua valendo para ela: nenhum `2a19`, `fee1` ou `2a37`, o que ficou inconclusivo.
+  Não era falha confirmada: os passos não mudaram (no Android a `fee1` só notificou com passos novos); a única virada
+  de minuto da janela gravada da conexão 1 caiu junto com o `31` do handshake (no Android, o aviso de bateria vem logo
+  depois da virada do minuto); não se sabe quando o link 1 caiu; e, sem log, não se sabe se as três CCCDs laterais
+  voltaram com status 0. Pedido ao usuário em 2026-11-01: com o relógio conectado e o app aberto, andar uns 20 passos,
+  ficar parado 2 min e exportar, ou mandar o log do iPhone (Console.app com as mensagens de informação; cada CCCD tem
+  uma linha `CentralTransport/enableNotifications characteristic=… status=…`). O teste foi feito (a segunda sessão,
+  abaixo). Caixa em [Pendências](#pendências).
 
 O teste do simulador `CoreBridgeReplayTests.testCondorReebokRealIosRecordingThroughTheWholeIosHost` (desde
 2026-11-01) passa essa gravação pelo host iOS inteiro, um método JS por vez: `initialize`, `scan`, `pairDevice` (com o
@@ -372,6 +387,80 @@ vínculo clássico "não suportado", sem `onError`), `getDeviceInfo`, `getFirmwa
 com o Bluetooth desligado e religado. Linha do log do teste: `IOS-REPLAY ios-pair-commands-sync-reconnect.jsonl: 57
 packets, TX matched 27/27, READ matched 5/5, writes [WITHOUT_RESPONSE: 27], connects 2, battery 43%, steps 2026-10-31
 = 77, 2026-11-01 = 21`; só o `onBatteryStatus` pedido e só o `onPedometer` do `refreshSteps`.
+
+### A segunda sessão no iPhone (2026-11-01, 23:20, não versionada)
+
+Feita para o teste curto pedido ao usuário (andar uns 20 passos com o app aberto e esperar 2 min). O usuário relatou:
+"Testado novamente no iPhone e sim, está atualizando automaticamente." A exportação (`frames-20261101-232830.jsonl`,
+sem `logs-*` ao lado) fica na raiz deste repositório, ignorada por `/frames-*.jsonl`, e **não foi versionada**: começa
+no meio de uma sessão já pronta (o log foi limpo antes, dedução pelo `FrameRecorder`), sem handshake, e o replay do
+Repo 1 começa num pareamento. O Repo 1 a cita como `ios-walk@<atMs>` (`docs/protocolo-crp.md`, seção 1; procedência e
+conferência de privacidade no `docs/fixtures.md`, seção 5). Uma conexão, 7 min 53 s, MTU 515 no cabeçalho.
+
+- **Bateria**: um `2a19` em cada uma das 8 viradas de minuto, 0,355 a 1,478 s depois dela: `0x2A`, `0x29` e `0x28` seis
+  vezes (42 → 41 → 40 %), inclusive sem mudança de valor. É o mesmo ritmo do Android.
+- **Passos**: depois de um `readSteps` (`READ fee1` com 21, `59 00` a `59 03` e `33 01`; deduzido como o Refresh
+  steps), 14 `fee1` enquanto a pessoa andava, de 37 a 106 passos, sem nenhuma releitura até o Sync: é o caminho com o
+  estado (cada aviso vira a meia hora atual e os totais, e a sessão emite `onPedometer` no máximo a cada 2 s). A `fee1`
+  só notificou quando o contador mudou, e o primeiro aviso depois de uma pausa pulou 15 ou 16 passos.
+- **Frequência cardíaca**: uma rajada de dez `2a37` a cerca de 1 s (82 → 79 → 83 bpm), sem comando do app antes e sem
+  `F9` na janela; só log.
+- **`6D FF` sem pedido** (`FE EA 20 06 6D FF`): pelas SDKs, o resultado de uma "medição única" de frequência cardíaca.
+  O driver só loga (`unsolicited 6D UNKNOWN … ignored`), sem `onError` nem evento para o JS, como o Core de produção.
+- **Do lado do JS**: os cartões Bateria e Passos de hoje do app de exemplo só mudam com `onBatteryStatus` e
+  `onPedometer` (`example/src/hooks/coreState.ts`), então o relato do usuário indica que o host iOS entregou os eventos
+  sem pedido ao JS. Sem log, os eventos em si, o limite de 2 s e o status das CCCDs não estão registrados; o teste foi
+  com o app aberto, sem segundo plano nem tela bloqueada.
+
+### Fase 2: ajustes, mensagens e interações
+
+Desde 2026-11-02 o shim tem os 24 métodos da fase 2 (os 23 do Core de produção e o `resetDevice`) e os ramos dos 4
+eventos novos (`onFindPhone`, `onTakeAPicture`, `onOpenCameraMode`, `onDeviceRequestedCameraMode`); o contrato está no
+[`api-js.md`](api-js.md#ajustes-mensagens-e-interações-fase-2) e as regras, no `CoreBridge` do Repo 1. Conferido só no
+simulador; a validação com o P85 no iPhone está nas [Pendências](#pendências).
+
+- **Nada novo na plataforma.** Nenhum método do `CoreHost`, permissão, chave do `Info.plist` ou modo de segundo plano:
+  tudo é escrita ou notificação BLE na sessão já pronta. O shim repassa os `NSDictionary` e `NSArray` como chegam do
+  React Native; o `NSNull` das listas (num dicionário, a chave nula nem chega, com as flags padrão do RN 0.81.4) é
+  tratado no `SettingsMapper` do Repo 1 (`isNullLike`, D7), assim como a
+  validação, o `NOT_READY`, o `NOT_SUPPORTED` e a câmera
+  ([`turbomodule/README.md`](../ios/CoreNext/turbomodule/README.md)).
+- **Argumento inteiro `nil`.** O React Native 0.81 entrega o `null`/`undefined` do JS no lugar do texto, do dicionário
+  ou da lista como `nil`, e o framework do Repo 1 não o recebe: no simulador, um `nil` no `setTemperatureUnitTemp:`
+  encerrou o processo com um `kotlin.NullPointerException` não capturado. O shim confere cada argumento de objeto
+  (`CNRejectNil`, nos 19 métodos que os têm, inclusive três da fase 1) e rejeita com `INVALID_ARGUMENT`, sem `onError`
+  (DP-100; a correção com `onError` é aceitar nulo no `CoreBridge`, como no DP-99 do Android).
+- **Uma escrita por frame.** Com o MTU 515 do iPhone (bloco 244), todo frame da fase 2 sai numa escrita só: o maior é
+  o `F2 02` de um contato, com até 98 bytes. Fragmentação só com bloco de 20, que o P85 não usou no iPhone; a redação
+  acompanha os fragmentos (D14).
+- **Redação dos frames privados (D14) no host.** O `CentralTransport` só loga o status das escritas, nunca os bytes;
+  o único hex que chega ao anel do log, ao `os_log`, ao `onLog` e ao `frames-*.jsonl` é a cópia redigida que o driver
+  entrega ao `WatchLogger.frame` (`12`, `75`, `42`, `43` e `41` zerados; `B5` com o sub; `F2 02` com o `02` e o id).
+  Conferido no simulador (`Phase2HostTests`, com o perfil e o ciclo menstrual fictícios). Uma gravação da fase 2 feita
+  no iPhone pode virar fixture sem passar dado pessoal; a `CrpTxMasker` do teste compara esses TX por
+  `(cmd, sub, tamanho)` ([`ios/Tests/README.md`](../ios/Tests/README.md)).
+- **Notificações (ANCS).** No iPhone as notificações chegam ao relógio pelo ANCS, depois do vínculo de sistema feito em
+  Ajustes > Bluetooth (ADR 30 do Repo 1); o `manageNotifications` manda o `B9 04`, o filtro do próprio relógio, só se o
+  P85 responder ao `B9 14 00` (sem resposta, um WARN e o relógio fica com o filtro anterior, D4(e)). Se o filtro muda
+  o que o ANCS mostra no relógio, só a validação diz.
+- **Contatos e ligações.** O `setAddressBook` grava a agenda do relógio (`F2`); a ligação feita pelo relógio vai pelo
+  HFP do vínculo de sistema, como as ligações recebidas (DP-50). Validar com um contato fictício (DDD 00) que o relógio
+  disca pelo iPhone.
+- **Encontrar celular.** Só o evento `onFindPhone` (opção A, DP-57); o Condor toca o `alarm.mp3` e posta uma
+  notificação local. Com o app em segundo plano, o evento depende de o iOS acordar o processo pelo modo
+  `bluetooth-central`, que o Condor declara (`condor:../ios/CondorSmart/Info.plist:126-133`, com `audio` também); a
+  produção tocava o som em laço no nativo (`TechnosFindPhoneManager.m`). Não validado: o teste da fase 2 é em primeiro
+  plano.
+- **Câmera.** A máquina de estado é a do `CoreBridge` (D11). Um disparo do relógio com o app em segundo plano não faz
+  nada no iPhone, como na produção iOS. Os payloads dos eventos têm o formato da produção iOS: `{}` nos três da câmera
+  e `{status}` no `onFindPhone` (`ios/reactlibrary/Events/EventHandler.mm:82-92, 186-190`).
+- **Clima.** O `syncWeather` recebe a lista pronta do app; o `getCurrentGeolocation` que o Condor usa para montá-la é
+  da fase 4 (DP-68).
+- **Framework.** O host roda sobre o snapshot final da fase 2 do Repo 1, republicado depois do S5b (que só mudou
+  testes e docs, sem mexer no código do `:protocol` nem do `:bridge`): `ios/Frameworks/VERSION.txt` copiado em
+  2026-11-02 07:32 UTC, com alterações não commitadas no Repo 1, e o binário de cada fatia igual ao de
+  `bridge/build/XCFrameworks/release/` (SHA-256 conferido). O `pod install`, os testes do host e os dois builds
+  rodaram de novo sobre ele.
 
 ## Duas instâncias do TurboModule
 
@@ -514,6 +603,17 @@ Feita em 2026-10-30, com Xcode 26.1.1 e simulador iOS 26:
   `BLUETOOTH_OFF`, `RCTNativeCoreNext/attach`, `[CoreNextExample] initialize() resolved` e
   `onConnectStateChanged {"state":4,…}` no JS; a tela mostra `Bluetooth desligado (4)` e `Módulo: Inicializado`.
 - **Build para iPhone**: `Release`, `-sdk iphoneos`, `CODE_SIGNING_ALLOWED=NO`, arm64, com o `main.jsbundle` embutido.
+- **Fase 2 (2026-11-02)**, com o XCFramework do S5a: 66 testes do host, 0 falhas (os 54 de antes, mais 3 do
+  `Phase2HostTests`, 6 do `TxMaskersTests` e 3 do `TurboModuleSourceTests`). As linhas `IOS-REPLAY` da fase 1 não
+  mudaram (fitGPS 167/167 e 32/32, Life Ultra GPS 12/12, Condor Reebok 38/38 + 7 READ, 27/27 + 5 READ e a sintética
+  12/12 + 3 READ). As linhas `IOS-PHASE2`: `setUserInfo`, `setMenstrual` e `vibrateDevice` com 3 TX reais e o export
+  com os 2 privados redigidos; `INVALID_ARGUMENT` com o `onError` primeiro; `onFindPhone` `"1"`/`"0"`,
+  `onDeviceRequestedCameraMode` × 2, `onOpenCameraMode` antes do resolve e `onTakeAPicture` × 1; sem conexão,
+  `NOT_READY` e o `closeCameraMode` resolvido sem TX. O `pod install` regenerou o `NativeCoreNextSpec.h` com os 47
+  métodos e os 17 emissores, e os dois builds do exemplo (simulador Debug e iPhone Release sem assinar) compilaram o
+  shim sem aviso. Repetido no mesmo dia com o XCFramework republicado depois do S5b (07:32 UTC): `pod install`, 66
+  testes do host com 0 falhas e as mesmas linhas `IOS-REPLAY` e `IOS-PHASE2`, e os dois builds do exemplo sem aviso
+  do shim.
 
 ## Pendências
 
@@ -565,15 +665,31 @@ Em aberto:
   steps, sync (passos de hoje e de ontem, sono vazio) e uma reconexão, com a gravação `platform` `ios` versionada em
   `fixtures/real/condorreebok/MOY-VS02-2.0.0/ios-pair-commands-sync-reconnect.jsonl` e reproduzindo no Repo 1 e no host
   do simulador.
-- [ ] Condor Reebok no iPhone, o que a gravação de 2026-11-01 não cobriu (roteiro no
-  [`example/README.md`](../example/README.md#condor-reebok-no-iphone)): as notificações espontâneas (bateria a cada
-  minuto e `fee1` andando; nenhuma veio na gravação, inconclusivo; teste curto pedido ao usuário: andar uns 20 passos com
-  o app aberto, ficar parado 2 min e exportar, ou mandar o log do iPhone com as linhas
-  `CentralTransport/enableNotifications … status=…`); se o iOS pede pareamento no `connect` (com o P85 esquecido nos
-  Ajustes antes); o efeito do transport bridging (o relógio aparece em Ajustes > Bluetooth? as chamadas funcionam
-  depois de parear lá?); o WARN da dica do vínculo clássico e o `requestMtu requested=512 effective=…` no log; as
-  propriedades do `fee2` na linha `discoverServices`; sono depois de uma noite; Bluetooth desligado e religado com a
+- [x] Condor Reebok no iPhone, as notificações espontâneas (2026-11-01, 23:20 a 23:28; o usuário relatou, sobre o
+  teste com o app aberto: "está atualizando automaticamente"): a `2a19` a cada virada de minuto, a `fee1` andando, sem
+  releitura, e uma rajada de `2a37`, na segunda sessão, não versionada
+  ([A segunda sessão](#a-segunda-sessão-no-iphone-2026-11-01-2320-não-versionada)). Na gravação das 17:04 nenhuma
+  tinha vindo.
+- [ ] Condor Reebok no iPhone, o que as gravações de 2026-11-01 não cobriram (roteiro no
+  [`example/README.md`](../example/README.md#condor-reebok-no-iphone)): as linhas de CCCD no log
+  (`CentralTransport/enableNotifications … status=…`, pelo Console.app); os avisos com o app em segundo plano e com a
+  tela bloqueada; se o iOS pede pareamento no `connect` (com o P85 esquecido nos Ajustes antes); o efeito do
+  transport bridging (o relógio aparece em Ajustes > Bluetooth? as chamadas funcionam depois de parear lá?); o WARN
+  da dica do vínculo clássico e o `requestMtu requested=512 effective=…` no log; as propriedades do `fee2` na linha
+  `discoverServices`; sono depois de uma noite; Bluetooth desligado e religado com a
   causa anotada; fora de alcance; e o `forgetDevice` (`F8`, com a dica de esquecer o relógio nos Ajustes).
+
+- [ ] Condor Reebok no iPhone, a fase 2 (validação de 2026-11-03; checklist no
+  [`example/README.md`](../example/README.md#checklist-da-fase-2-com-o-condor-reebok), um cenário por export, só com
+  os valores fictícios da aba Ajustes): o filtro `B9 04` mudando o que o ANCS mostra no relógio (e se o P85 responde ao
+  `B9 14 00`); uma ligação feita pelo relógio para um contato da agenda, pelo HFP; o `onFindPhone` com o app aberto
+  (e, se der, em segundo plano e com a tela bloqueada); a câmera (abrir, disparo com ela aberta e fechada, saída pelo
+  relógio, fechar); o `vibrateDevice`; o `resetDevice` (`51 02`: se o relógio reinicia, se a conexão cai dentro dos
+  200 ms, DP-91, e se o vínculo de sistema some, o que levaria a reconexão ao `PAIRING_REMOVED`); o clima com a lista
+  fictícia; o export com os frames privados zerados. Fica de fora a geolocalização do clima (fase 4).
+- [x] Repetir o `sync-xcframework.sh --build`, o `pod install`, os testes do host e os dois builds depois do S5b
+  (2026-11-02, [Fase 2 na verificação](#verificação-sem-iphone); o XCFramework veio do
+  `assembleTechnosWatchProtocolXCFramework` do Repo 1, copiado pelo `sync-xcframework.sh` sem `--build`).
 
 Limites conhecidos, de desenho:
 

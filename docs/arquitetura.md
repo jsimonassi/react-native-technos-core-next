@@ -3,7 +3,9 @@
 Visão do Repo 2: um TurboModule fino sobre o `technos-watch-protocol` (Repo 1). Esta PoC cobre as famílias SMA
 (Mormaii fitGPS) e iDO (Mormaii Life Ultra GPS, funções básicas) no Android e, desde 2026-10-30, no iOS (testado num
 iPhone com os dois relógios no mesmo dia, sem reconexão nem segundo plano; seção [iOS](#ios)), e a família CRP (Condor
-Reebok, fase 1, validada pelo usuário com o relógio no Android e no iPhone em 2026-11-01). O host não tem código por
+Reebok, fase 1, validada pelo usuário com o relógio no Android e no iPhone em 2026-11-01; fase 2, os ajustes, mensagens
+e interações, desde 2026-11-02 e ainda sem validação no relógio, seção
+[Ajustes, mensagens e interações](#ajustes-mensagens-e-interações-fase-2)). O host não tem código por
 família: os filtros do
 scan saem de `Profiles.all` (sem filtro quando um perfil aceita prefixo de nome, como o `P85`), e o perfil diz à
 sessão quais CCCD ligar (no iDO, dois; no CRP, quatro, três deles em outros serviços), se pede MTU e o tipo de escrita
@@ -22,12 +24,12 @@ fica a plataforma. As peças do iOS estão na seção [iOS](#ios) e em detalhe e
 | Camada | Onde | Responsável por | Não faz |
 |---|---|---|---|
 | JS | `src/` | Wrapper `TechnosCore`/`TechnosEvents`, tipos, permissões (no app) | Nada de BLE |
-| Módulo | `NativeCoreNextModule.kt` | Uma chamada ao `CoreBridge` por método JS (a Promise num `PromiseCompletion`, o `ReadableArray` pelo `ReadableConverter`); ser o `CoreEventSink` (o `emitOnX` de cada nome); ligar-se ao controlador e desligar-se dele | Qualquer regra |
+| Módulo | `NativeCoreNextModule.kt` | Uma chamada ao `CoreBridge` por método JS (a Promise num `PromiseCompletion`, o `ReadableMap` e o `ReadableArray` pelo `ReadableConverter`); ser o `CoreEventSink` (o `emitOnX` de cada nome); ligar-se ao controlador e desligar-se dele | Qualquer regra (nem ler as chaves dos dicionários da fase 2) |
 | Controlador | Repo 1 (`CoreBridge`, `br.com.grupotechnos.watch:bridge`) | Checagens e rejeições antecipadas, `requestId` e liquidação, evento antes do `resolve`, `NO_DATA`, pareamento salvo, quando ligar o FGS, reconexão automática, fila de eventos, ciclo de vida do módulo | Plataforma |
 | Montagem | `CoreGraph.kt` | Montar a sessão, o transporte, o logger, o store, o scanner, o `ClassicBonder`, o `AndroidCoreHost` e o `CoreBridge` uma vez por processo; ligar scanner, resultado do vínculo clássico, log e `BluetoothStateReceiver` aos ganchos do controlador | Decidir algo |
 | Plataforma | `AndroidCoreHost.kt` | O `CoreHost`: permissões, Bluetooth ligado, MAC válido, scan, FGS, `PairingPrefs`, cabeçalho da gravação, log em memória, export e vínculo clássico | Decidir quando |
 | Transporte | `ble/` | `BluetoothGatt`, fila GATT, scan, estado do adaptador, FGS do sync, vínculo clássico (`ClassicBonder`, fora do `Transport`) | Decidir quando reconectar, desistir ou pedir o vínculo |
-| Ponte RN | `bridge/` | `WritableConverter` (payload → `WritableMap`), `ReadableConverter` (`ReadableArray` → `List`), `PromiseCompletion` | Mapear o domínio (é o `EventMapper` do Repo 1) |
+| Ponte RN | `bridge/` | `WritableConverter` (payload → `WritableMap`), `ReadableConverter` (`ReadableArray`/`ReadableMap` → `List`/`Map`, sem coerção), `PromiseCompletion` | Mapear o domínio (é o `EventMapper` e o `SettingsMapper` do Repo 1) |
 | Persistência | `store/` | Histórico (`SampleStore`) em JSON, último pareamento | Agregação, poda |
 | Log | `log/` | Anel, Logcat, `onLog`, gravação de frames | Envio a servidor |
 | Protocolo | Repo 1 (`br.com.grupotechnos.watch:protocol`) | Máquina de estados, handshake BIND/LOGIN, codec SMA, sync, agregação de passos, análise de sono | Plataforma |
@@ -190,8 +192,11 @@ Eventos espontâneos (o relógio avisa que os dados mudaram, `requestId = -1`) s
 `onDeviceInfo` espontâneo emite `onDeviceInfo` e `onFirmwareInfo`. O fitGPS 0.2.1 não mandou nenhum aviso desses na
 gravação de 2026-10-29: passos ao vivo precisam de `refreshSteps()` periódico ([`pendencias.md`](pendencias.md)). O
 Condor Reebok avisa sozinho: a bateria (`2a19`, cerca de uma vez por minuto) vira `onBatteryStatus`, e os passos do dia
-(`fee1`, a cada passo andando) viram `onPedometer`, no máximo um a cada 2 s (a sessão junta os avisos num comando
-interno da fila). O `onError` `CLASSIC_BOND_FAILED` também sai sem Promise (`method: "classicBond"`).
+(`fee1`, quando o contador do relógio muda: cerca de uma vez por segundo andando, não a cada passo, e o primeiro aviso
+depois de uma pausa traz uns 16 passos) viram `onPedometer`, no máximo um a cada 2 s (a sessão junta os avisos num
+comando interno da fila). Os dois avisos foram vistos no Android e no iPhone em 2026-11-01 (no iPhone, numa segunda
+sessão, não versionada, só no export, do lado do rádio; os eventos JS não ficaram registrados, porque não há log). O
+`onError` `CLASSIC_BOND_FAILED` também sai sem Promise (`method: "classicBond"`).
 
 ### `deletedSavedData`
 
@@ -204,20 +209,67 @@ do Core atual manda só as datas, `TechnosWareCore/src/NativeModules/index.ts:76
 fuso do telefone antes de pegar a data, porque o app pode devolver datas em UTC. O conjunto de dias vai para
 `confirmUploaded`, que tira esses dias de `getHistoryPedometer`/`getHistorySleep`.
 
+### Ajustes, mensagens e interações (fase 2)
+
+Os 24 métodos da fase 2 (os 23 do Core e o `resetDevice`) e os 4 eventos novos não mudam a plataforma: nenhuma
+permissão, serviço, componente de manifest, peça nova em `ble/`, `store/` ou `log/`, nem mudança no `CoreHost` (D15 da
+especificação). Tudo é escrita ou aviso BLE na sessão já pronta, pelo caminho dos outros comandos. A regra de cada
+método está na seção 13 e na ADR 38 do Repo 1, e o contrato, em
+[`api-js.md`](api-js.md#ajustes-mensagens-e-interações-fase-2). O que o host faz:
+
+- **Argumentos.** O módulo converte cada `ReadableMap` com `ReadableConverter.toMap` e cada `ReadableArray` com
+  `toList` (número sempre `Double`, nulo como `null`, sem coerção e sem ler chave) e passa booleanos, números e textos
+  como chegam. Quem lê as chaves do Core (`enable` no alarme, `onOff` no sedentarismo, o `repeat`), aplica os padrões
+  e rejeita `INVALID_ARGUMENT` (com `onError` antes) são o `SettingsMapper`, o `NotificationKeys` e o `WeatherMapper`
+  do `:bridge` (D7). Um `null`/`undefined` do JS no lugar de um mapa, lista ou texto não chega ao `CoreBridge`: a
+  checagem de parâmetro não nulo do Kotlin lança e o RN 0.81 rejeita a Promise com um `Error` sem `code` e sem
+  `onError` (DP-99 do [`desvios-de-producao.md`](desvios-de-producao.md)). No iOS, o mesmo `nil` derrubaria o processo
+  (`kotlin.NullPointerException` não capturado, visto no simulador), e a única regra do shim, o `CNRejectNil` do
+  `RCTNativeCoreNext.mm`, o rejeita com `INVALID_ARGUMENT`, sem `onError` e sem chamar o `CoreBridge` (DP-100). A
+  correção comum (parâmetros anuláveis no `CoreBridge`) está nos itens técnicos abertos do `docs/pendencias.md` do Repo
+  1. Booleano e número fora do tipo o próprio RN recusa na chamada, como na produção.
+- **Caminho no `CoreBridge`.** Os 20 ajustes e mensagens vão por `session.applySetting` e as 4 ações
+  (`vibrateDevice`, `openCameraMode`, `closeCameraMode`, `resetDevice`) por `session.perform`; cada pedido termina com
+  `onCompleted` ou `onError`, como os da tabela acima. Fora de `READY`/`SYNCING`, `NOT_READY`; com o fitGPS e o Life
+  Ultra GPS, `NOT_SUPPORTED` sem escrever (DP-80). As exceções moram no controlador: `syncWeather([])` resolve na hora
+  sem falar com a sessão; `closeCameraMode` sem conexão só zera o modo câmera e resolve; `setTemperatureUnit` reenvia o
+  último clima depois do `resolve`, por um pedido interno sem Promise.
+- **Eventos.** `onFindPhone`, `onTakeAPicture` e `onDeviceRequestedCameraMode` nascem de um `WatchEvent` da sessão
+  (`onWatchEvent`, só em `READY`), e `onOpenCameraMode` sai entre a conclusão do `openCameraMode` e o `resolve`. Os
+  quatro saem da thread da sessão pelo mesmo `emit()` do módulo (um `emitOnX` cada) e não entram na fila do
+  `PendingEvents` (`queueIfNotReady = false`, D3): sem o JS, se perdem (DP-82).
+- **Threads.** As mesmas dos outros comandos: a conversão e a chamada ao `CoreBridge` na thread de módulos nativos do
+  RN, a escrita na fila da sessão (atrás do comando anterior e do fim de um sync, DP-05), o evento e a liquidação na
+  thread da sessão.
+
+Limites do Android que vêm daí, todos anotados como desvio de produção:
+
+- O FGS só existe durante o sync ([Serviço em primeiro plano](#serviço-em-primeiro-plano)), e o sync de ajustes do
+  Condor roda logo depois do `onSyncFinished`: com o app em segundo plano, essas escritas podem atrasar ou cair (DP-66).
+- Encontrar celular na opção A: só o `onFindPhone`, que chega ao JS se o processo estiver vivo; sem tela cheia,
+  lanterna nem vibração nativas (DP-57).
+- Câmera disparada pelo relógio com o app em segundo plano: só o evento (se o processo estiver vivo); a produção
+  mostrava uma notificação com deep link (DP-63).
+- Sem `NotificationListenerService`: o filtro do `manageNotifications` vai ao relógio, mas nenhuma notificação do
+  telefone é encaminhada (DP-44, DP-46), e o `checkIsNotificationServiceEnabled` da camada de compatibilidade resolve
+  `true` (DP-45). Sem o RX `67`, sem controle de música por BLE (DP-64). Ligações só pelo HFP do vínculo clássico
+  (DP-50).
+
 ## Códigos de erro
 
 Os da sessão (`WatchErrorCodes` do Repo 1): `NOT_READY`, `UNSUPPORTED_DEVICE`, `CONNECT_TIMEOUT`,
 `GATT_NOT_SUPPORTED`, `HANDSHAKE_FAILED`, `TIMEOUT`, `PROTOCOL`, `NO_DATA`, `TRANSPORT`, `DISCONNECTED`,
 `PAIRING_REMOVED` (o telefone guarda um vínculo Bluetooth que o relógio apagou; hoje só o host iOS o detecta, ADR 23 do
-Repo 1), `CANCELLED` e `BUSY` (este reservado: a sessão não o emite, um pareamento novo cancela o anterior com
-`CANCELLED`, ADR 13 do Repo 1). Os que nascem no host, antes de chamar a sessão ou num pedido ao sistema que não é da sessão (`HostErrorCodes` do
-`:bridge`, Repo 1):
+Repo 1), `CANCELLED`, `BUSY` (este reservado: a sessão não o emite, um pareamento novo cancela o anterior com
+`CANCELLED`, ADR 13 do Repo 1) e `NOT_SUPPORTED` (fase 2: ajuste ou ação que a família do relógio não tem, hoje todos
+no fitGPS e no Life Ultra GPS; ADR 35 do Repo 1). Os que nascem no host, antes de chamar a sessão ou num pedido ao
+sistema que não é da sessão (`HostErrorCodes` do `:bridge`, Repo 1):
 
 | Código | Quando |
 |---|---|
 | `PERMISSION_DENIED` | Falta `BLUETOOTH_SCAN` (scan) ou `BLUETOOTH_CONNECT` (pair/reconnect) na API 31+, ou localização no scan na API 30-. O JS pede as permissões; o nativo só confere. |
 | `BLUETOOTH_OFF` | `scan`, `pairDevice` ou `startPairingAttempt` com o Bluetooth desligado. |
-| `INVALID_ARGUMENT` | `deviceId` que não é um MAC válido. |
+| `INVALID_ARGUMENT` | `deviceId` que não é um MAC válido; na fase 2, dicionário ou lista malformada (campo obrigatório ausente, tipo errado, fora da faixa, `"HH:mm"` inválido), decidido pelo `SettingsMapper` do `:bridge` antes da sessão ([`api-js.md`](api-js.md#ajustes-mensagens-e-interações-fase-2), DP-96); no iOS, também o argumento inteiro `nil` de um método da fase 2 (ou do `pairDevice`/`startPairingAttempt`), barrado pelo `CNRejectNil` do shim sem `onError` (DP-100). |
 | `IO_ERROR` | Falha de arquivo em `exportLogs` ou ao ler o histórico local. |
 | `CLASSIC_BOND_FAILED` | O vínculo Bluetooth clássico do Condor Reebok não saiu (seção abaixo). Só `onError`, `requestId` -1, `method: "classicBond"`. |
 
@@ -260,7 +312,8 @@ Detalhes do Android, com o que a captura HCI mostrou, em
 Só durante o sync: o `CoreBridge` pede `startSyncWork` em `onSyncStarted` e `stopSyncWork` em `onSyncFinished`, no
 `onError` do sync ou quando a sessão sai de `READY`/`SYNCING`; o `AndroidCoreHost` sobe e desce o
 `SyncForegroundService`. Detalhes e limites em
-[`transporte-android.md`](transporte-android.md#serviço-em-primeiro-plano-só-no-sync).
+[`transporte-android.md`](transporte-android.md#serviço-em-primeiro-plano-só-no-sync). Os ajustes e ações da fase 2
+não ligam o serviço: os que rodam depois do sync (o sync de ajustes do Condor) ficam sem ele (DP-66).
 
 ## iOS
 

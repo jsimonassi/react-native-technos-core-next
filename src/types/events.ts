@@ -135,6 +135,24 @@ export interface SyncProgressEvent {
 	progress: number;
 }
 
+/**
+ * `onFindPhone`, igual ao `TechnosFindPhoneStatus` do Core atual (`type/eventData/deviceInfo.ts:28-30`): `"1"` quando o
+ * relógio começa a procurar o telefone, `"0"` quando para. Sai sem pedido, só com a conexão pronta, e não é guardado
+ * enquanto o JS não existe.
+ */
+export interface FindPhoneEvent {
+	status: "1" | "0";
+}
+
+/** `onTakeAPicture`: disparo da câmera no relógio com o modo câmera aberto. Sem campos. */
+export type TakeAPictureEvent = Record<string, never>;
+
+/** `onOpenCameraMode`: a abertura de `openCameraMode` foi escrita; sai antes de a Promise resolver. Sem campos. */
+export type OpenCameraModeEvent = Record<string, never>;
+
+/** `onDeviceRequestedCameraMode`: disparo da câmera no relógio com o modo câmera fechado. Sem campos. */
+export type DeviceRequestedCameraModeEvent = Record<string, never>;
+
 /** `onError`. Novo. Toda Promise rejeitada também gera este evento. */
 export interface ErrorEvent {
 	/** `-1` quando o erro não veio de um comando. */

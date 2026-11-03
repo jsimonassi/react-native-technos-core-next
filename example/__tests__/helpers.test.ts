@@ -9,6 +9,7 @@ import {
 	todayKey,
 } from "../src/helpers/format";
 import { filterLogs, mergeSnapshot, prependNewest, spacedHex, toJsonl, type LogRow } from "../src/helpers/logBuffer";
+import { hhmm, isoWithOffset, syntheticSettings } from "../src/helpers/syntheticSettings";
 import { coreReducer, initialCoreState } from "../src/hooks/coreState";
 import { permissionsForApi, summarizePermissions } from "../src/hooks/usePermissions";
 
@@ -156,5 +157,55 @@ describe("coreReducer", () => {
 			at: 1,
 		});
 		expect(state.sync.progress).toBe(100);
+	});
+});
+
+describe("syntheticSettings", () => {
+	// 23:59 de propósito: os itens "daqui a 2 min" atravessam a meia-noite.
+	const now = new Date(2026, 10, 2, 23, 59, 30);
+
+	it("formata hora e data ISO com o offset do telefone", () => {
+		expect(hhmm(new Date(2026, 0, 5, 7, 3))).toBe("07:03");
+		expect(isoWithOffset(new Date(2026, 10, 2, 6, 0, 0))).toMatch(/^2026-11-02T06:00:00[+-]\d{2}:\d{2}$/);
+	});
+
+	it("monta os três alarmes no formato do app Condor, com o único daqui a 2 min", () => {
+		// Data de criação com mês 1-12, como o app Condor (`Reminder/index.tsx:107-127`).
+		const created = { day: 2, month: 11, year: 2026, type: 0 };
+		expect(syntheticSettings.alarms(now)).toEqual([
+			{ position: "1", enable: true, hour: 6, minute: 45, repeat: "1111100", ...created },
+			{ position: "2", enable: true, hour: 7, minute: 0, repeat: "1111111", ...created },
+			{ position: "3", enable: true, hour: 0, minute: 1, repeat: "0000000", ...created },
+		]);
+	});
+
+	it("usa as chaves de cada método: onOff no sedentarismo, enabled nos outros e mês 0-11 no ciclo", () => {
+		expect(syntheticSettings.walkOff).toMatchObject({ onOff: false });
+		expect(syntheticSettings.walkOff).not.toHaveProperty("enabled");
+		expect(syntheticSettings.waterOn(now)).toMatchObject({ enabled: true, startHour: "00:01", interval: 10 });
+		expect(syntheticSettings.waterOn(now, 0).reminderCount).toBe(0);
+		expect(syntheticSettings.menstrualOn).toMatchObject({ lastMenstrualPeriodMonth: 2, lastMenstrualPeriodDay: 9 });
+		expect(syntheticSettings.menstrualSilenced(now)).toMatchObject({
+			enabled: false,
+			reminder: false,
+			lastMenstrualPeriodMonth: 10,
+		});
+		expect(syntheticSettings.userInfo.month).toBe(5);
+	});
+
+	it("monta o clima fictício com 7 dias, hoje com 25 °C, Teste e nascer e pôr do sol de hoje", () => {
+		const weather = syntheticSettings.weather(now);
+		expect(weather).toHaveLength(7);
+		expect(weather[0]).toMatchObject({ temperature: 25, icon: 1, locationName: "Teste", min: 18, max: 28 });
+		expect(weather[0].sunrise).toMatch(/^2026-11-02T06:00:00/);
+		expect(weather[0].sunset).toMatch(/^2026-11-02T18:00:00/);
+		expect(weather.slice(1).every(day => day.temperature === 0 && day.sunrise === undefined)).toBe(true);
+		expect(weather.some(day => day.min < 0)).toBe(true);
+	});
+
+	it("só usa telefones com o DDD 00, que não existe", () => {
+		for (const contact of syntheticSettings.contacts) {
+			expect(contact.phoneNumber.replace(/\D/g, "")).toMatch(/^(55)?00/);
+		}
 	});
 });

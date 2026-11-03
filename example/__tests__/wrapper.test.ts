@@ -2,7 +2,17 @@
  * Testa o wrapper real (`src/index.ts`) sobre um TurboModule falso. O nome do pacote aponta para o mock no Jest, então
  * o wrapper é importado pelo caminho profundo, que aponta para o arquivo real.
  */
-import { TechnosCore, TechnosEvents, deletedCategory, errorCodes } from "react-native-technos-core-next/src/index";
+import {
+	TechnosCore,
+	TechnosEvents,
+	deletedCategory,
+	errorCodes,
+	technosEventNames,
+} from "react-native-technos-core-next/src/index";
+import {
+	TechnosCore as MockTechnosCore,
+	TechnosEvents as MockTechnosEvents,
+} from "react-native-technos-core-next/src/__mocks__/react-native-technos-core-next";
 import { groupSavedItemsByCategory } from "react-native-technos-core-next/src/utils/savedData";
 
 jest.mock("react-native-technos-core-next/src/specs/NativeCoreNext", () => ({
@@ -117,8 +127,35 @@ describe("TechnosCore (repasse ao nativo)", () => {
 	it("expõe o código do vínculo Bluetooth clássico, que só sai em onError", () => {
 		expect(errorCodes.CLASSIC_BOND_FAILED).toBe("CLASSIC_BOND_FAILED");
 		expect(TechnosCore.errorCodes.CLASSIC_BOND_FAILED).toBe("CLASSIC_BOND_FAILED");
-		// Treze códigos da sessão e cinco do host.
-		expect(Object.keys(errorCodes)).toHaveLength(18);
+		// Catorze códigos da sessão e cinco do host.
+		expect(Object.keys(errorCodes)).toHaveLength(19);
+	});
+
+	it("expõe NOT_SUPPORTED, o código dos ajustes que o modelo conectado não tem", () => {
+		expect(errorCodes.NOT_SUPPORTED).toBe("NOT_SUPPORTED");
+		expect(TechnosCore.errorCodes.NOT_SUPPORTED).toBe("NOT_SUPPORTED");
+	});
+
+	it("as chaves de TechnosEvents batem com technosEventNames, com os quatro eventos da fase 2", () => {
+		expect(Object.keys(TechnosEvents).sort()).toEqual([...technosEventNames].sort());
+		expect(new Set(technosEventNames).size).toBe(technosEventNames.length);
+		expect(technosEventNames).toEqual(
+			expect.arrayContaining([
+				"onFindPhone",
+				"onTakeAPicture",
+				"onOpenCameraMode",
+				"onDeviceRequestedCameraMode",
+			]),
+		);
+		expect(technosEventNames).toHaveLength(17);
+	});
+
+	it("o mock implementa tudo o que o wrapper exporta", () => {
+		expect(Object.keys(MockTechnosCore).sort()).toEqual(Object.keys(TechnosCore).sort());
+		for (const [name, value] of Object.entries(TechnosCore)) {
+			expect([name, typeof MockTechnosCore[name as keyof typeof MockTechnosCore]]).toEqual([name, typeof value]);
+		}
+		expect(Object.keys(MockTechnosEvents).sort()).toEqual(Object.keys(TechnosEvents).sort());
 	});
 
 	it("mantém as constantes do Core atual", () => {

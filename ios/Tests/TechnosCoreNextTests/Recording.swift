@@ -87,6 +87,20 @@ struct Recording {
 		)
 	}
 
+	/// Só os pacotes até `index` (inclusive), com o mesmo cabeçalho: depois deles a gravação acabou, e cada TX novo vai
+	/// para o `extraTx` do `ReplayTransport` com a escrita completada, como um relógio que não responde.
+	func prefix(through index: Int) -> Recording {
+		Recording(
+			source: "\(source)[0...\(index)]",
+			device: device,
+			firmware: firmware,
+			mtu: mtu,
+			recordedAt: recordedAt,
+			timeZone: timeZone,
+			packets: Array(packets.prefix(index + 1))
+		)
+	}
+
 	static func parseIso(_ text: String) -> Date? {
 		let withFraction = ISO8601DateFormatter()
 		withFraction.formatOptions = [.withInternetDateTime, .withFractionalSeconds]

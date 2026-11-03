@@ -1,5 +1,6 @@
 import * as errors from "./errors";
 import * as events from "./events";
+import * as promise from "./promise";
 import * as savedData from "./savedData";
 
 /**
@@ -13,4 +14,6 @@ export const utils = {
 	errors,
 	/** Preparar a lista de `deletedSavedData`. */
 	savedData,
+	/** `observed`, que os métodos da fase 2 usam para não gerar "unhandled promise rejection" sem `await`. Novo. */
+	promise,
 };

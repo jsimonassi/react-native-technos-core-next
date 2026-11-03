@@ -2,14 +2,31 @@
  * Ponto de entrada da biblioteca `react-native-technos-core-next`.
  *
  * Mantém os nomes do Core atual (`TechnosCore`, `TechnosEvents`, `utils`, `deviceConnectStates`,
- * `deletedCategory`) para o app Mormaii trocar de pacote mudando o import. A referência completa de cada método e
- * evento, com payloads de exemplo e diferenças em relação ao Core atual, está em `docs/api-js.md`.
+ * `deletedCategory`) para os apps Mormaii e Condor trocarem de pacote mudando o import. A referência completa de cada
+ * método e evento, com payloads de exemplo e diferenças em relação ao Core atual, está em `docs/api-js.md`.
  */
 import { deletedCategory, deviceConnectStates, errorCodes, logLevels, type LogLevelValue } from "./constants";
 import NativeCoreNext from "./specs/NativeCoreNext";
 import type { TechnosEventEmitter, TechnosEventEmitters, TechnosEventMap } from "./types/emitter";
 import type { LastPairedDevice, LogEvent, SavedItemDelete } from "./types/events";
+import type {
+	TechnosAlarmSet,
+	TechnosContactItem,
+	TechnosDistanceUnitUpdate,
+	TechnosGestureControlSetV2,
+	TechnosGoalsSet,
+	TechnosManageNotificationsUpdate,
+	TechnosMenstrualDataUpdate,
+	TechnosNotDisturbSet,
+	TechnosStressAutomaticUpdate,
+	TechnosUserInfoSet,
+	TechnosWalkReminderUpdate,
+	TechnosWaterReminderUpdate,
+	TechnosWeatherListUpdateItem,
+	TechnosWorldClockSet,
+} from "./types/watchSettings";
 import { utils } from "./utils";
+import { observed } from "./utils/promise";
 import { groupSavedItemsByCategory } from "./utils/savedData";
 
 /**
@@ -21,7 +38,9 @@ import { groupSavedItemsByCategory } from "./utils/savedData";
  *
  * Diferença principal em relação ao Core atual: lá os comandos são `void` e falhas são silenciosas; aqui quase todos
  * devolvem Promise. Código que ignora o retorno continua funcionando, mas convém tratar a rejeição para não gerar
- * "Possible unhandled promise rejection".
+ * "Possible unhandled promise rejection". Os ajustes, mensagens e interações da fase 2 (de `setUserInfo` a
+ * `closeCameraMode`) e o `resetDevice` já devolvem a Promise marcada como observada (`utils.promise.observed`):
+ * chamados sem `await`, não geram esse aviso; com `await`, rejeitam normalmente.
  */
 export const TechnosCore = {
 	/** Mesmos códigos de `onConnectStateChanged.state` do Core atual. */
@@ -104,6 +123,19 @@ export const TechnosCore = {
 	 */
 	forgetDevice: (): Promise<void> => NativeCoreNext.forgetDevice(),
 
+	/**
+	 * Reset de fábrica do relógio: no Condor Reebok, o `51 02` (o relógio não responde), resolvido depois da escrita e do
+	 * intervalo da fila. Separado de {@link TechnosCore.forgetDevice} (que nunca reseta): não esquece o pareamento
+	 * salvo, não apaga o histórico local e não remove o vínculo Bluetooth do sistema; o app decide se chama os dois. O
+	 * que o relógio faz com a conexão depois do reset ainda não foi validado.
+	 *
+	 * Rejeita com `NOT_READY` (desconectado), `NOT_SUPPORTED` (fitGPS e Life Ultra GPS), `DISCONNECTED` (também quando o
+	 * link cai nos 200 ms depois da escrita, com o `51 02` já enviado: o reset pode ter acontecido) ou `CANCELLED`.
+	 * Promise observada (sem `await` não gera aviso). No Core atual é `resetDevice(): void` (`NativeCore.ts:119` no
+	 * `v4.3.57`), e o Core do app Condor também o manda antes do `F8` em todo `disconnectCurrentDevice`.
+	 */
+	resetDevice: (): Promise<void> => observed(NativeCoreNext.resetDevice()),
+
 	/** `true` quando a sessão está pronta para comandos (conectada, inclusive durante sync). */
 	isConnected: (): Promise<boolean> => NativeCoreNext.isConnected(),
 
@@ -178,6 +210,190 @@ export const TechnosCore = {
 		}
 	},
 
+	// Fase 2: ajustes, mensagens e interações. Nomes e argumentos do Core atual (`NativeCore.ts` do `v4.3.57`); regras
+	// comuns no TSDoc de `setUserInfo` e em `docs/api-js.md`.
+
+	/**
+	 * Perfil do usuário. No Condor Reebok, o `0x12` com altura e peso arredondados e saturados em 0-255, a idade em anos
+	 * completos pela data do telefone e o gênero; o relógio não responde, e a Promise resolve depois da escrita e de
+	 * 500 ms. O nativo guarda o último perfil em memória.
+	 *
+	 * Regras de todos os métodos da fase 2: só o Condor Reebok executa (o fitGPS e o Life Ultra GPS rejeitam
+	 * `NOT_SUPPORTED`, sem escrever nada); desconectado, `NOT_READY` (nada é guardado para reenvio); durante um sync, o
+	 * comando espera o fim dele na fila; entrada malformada rejeita `INVALID_ARGUMENT` antes de chegar ao relógio; o
+	 * link caindo dá `DISCONNECTED` e um `disconnectCurrentDevice` dá `CANCELLED`. Toda rejeição também sai em `onError`,
+	 * e a Promise é observada (sem `await` não gera aviso).
+	 *
+	 * @param userInfo `{ year, month (1-12), day, weight (kg), height (cm), gender ("m", "f" ou "o"; vazio vale "o") }`.
+	 */
+	setUserInfo: (userInfo: TechnosUserInfoSet): Promise<void> => observed(NativeCoreNext.setUserInfo(userInfo)),
+
+	/**
+	 * Metas diárias. No Condor Reebok, o `B9 00` com passos, calorias e minutos de exercício (arredondados); a distância e
+	 * `movementTimeInHours` não vão. Resolve depois da escrita.
+	 */
+	setGoalsV2: (goals: TechnosGoalsSet): Promise<void> => observed(NativeCoreNext.setGoalsV2(goals)),
+
+	/**
+	 * Formato da hora no relógio: `true` = 12 h (AM/PM), `false` = 24 h, como no Core. No Condor Reebok, o `17`; resolve
+	 * depois da escrita.
+	 */
+	set12HourFormat: (enabled: boolean): Promise<void> => observed(NativeCoreNext.set12HourFormat(enabled)),
+
+	/**
+	 * Unidade de temperatura, `"c"` ou `"f"` (sem diferenciar maiúsculas; outro valor rejeita `INVALID_ARGUMENT`). No
+	 * Condor Reebok, o `7C` e a consulta `8C`: resolve quando o relógio confirma a unidade, rejeita com `PROTOCOL` se ele
+	 * confirmar outra e com `TIMEOUT` sem resposta em 4 s. Depois, o nativo reenvia o último clima recebido por
+	 * `syncWeather`, convertido. O Core atual resolvia sem esperar o relógio.
+	 */
+	setTemperatureUnit: (temp: string): Promise<void> => observed(NativeCoreNext.setTemperatureUnit(temp)),
+
+	/**
+	 * Unidade de distância: `{ distance_unit: "km" }` ou `{ distance_unit: "miles" }` (também `"mi"`), como o app Condor
+	 * manda. Outro valor rejeita `INVALID_ARGUMENT`. No Condor Reebok, o `1A`; resolve depois da escrita.
+	 */
+	setDistanceUnit: (distanceUnit: TechnosDistanceUnitUpdate): Promise<void> =>
+		observed(NativeCoreNext.setDistanceUnit(distanceUnit)),
+
+	/**
+	 * Tempo de tela acesa, em segundos (arredondado; fora de 1 a 255 rejeita `INVALID_ARGUMENT`). No Condor Reebok, o
+	 * `7D`; resolve depois da escrita.
+	 */
+	setScreenTime: (time: number): Promise<void> => observed(NativeCoreNext.setScreenTime(time)),
+
+	/**
+	 * Modo de economia de bateria. No Condor Reebok, o `94` e o eco `A4`: resolve no eco, rejeita com `PROTOCOL` se o
+	 * estado ecoado for outro e com `TIMEOUT` sem eco em 4 s.
+	 */
+	setDeviceBatterySaving: (enabled: boolean): Promise<void> =>
+		observed(NativeCoreNext.setDeviceBatterySaving(enabled)),
+
+	/** Liga ou desliga o SOS do relógio. No Condor Reebok, o `BB 08`; resolve depois da escrita. */
+	setSosHelp: (isEnabled: boolean): Promise<void> => observed(NativeCoreNext.setSosHelp(isEnabled)),
+
+	/**
+	 * Levantar o pulso para acender a tela, com a janela `"HH:mm"`. No Condor Reebok, o `18` e o `72`; resolve depois das
+	 * duas escritas. Hora inválida rejeita `INVALID_ARGUMENT`.
+	 */
+	setGestureControlV2: (gestureControlMap: TechnosGestureControlSetV2): Promise<void> =>
+		observed(NativeCoreNext.setGestureControlV2(gestureControlMap)),
+
+	/**
+	 * Ciclo menstrual, com o mês da última menstruação de **0 a 11** (contrato do Core; o perfil usa 1 a 12). Os lembretes
+	 * seguem `reminder` (que o app Condor manda) ou, sem ele, `enabled`. No Condor Reebok, o `75` (o ano não vai);
+	 * resolve depois da escrita.
+	 */
+	setMenstrual: (menstrual: TechnosMenstrualDataUpdate): Promise<void> =>
+		observed(NativeCoreNext.setMenstrual(menstrual)),
+
+	/**
+	 * Frequência cardíaca automática, com os quatro argumentos posicionais do Core. No Condor Reebok, o `1F` com o
+	 * intervalo em passos de 5 min (arredondado, no mínimo 1); desligado manda 0, e a janela é ignorada. Resolve depois da
+	 * escrita.
+	 *
+	 * @param enabled liga ou desliga.
+	 * @param startHour início da janela, `"HH:mm"` (ignorado no Condor Reebok).
+	 * @param endHour fim da janela, `"HH:mm"` (ignorado no Condor Reebok).
+	 * @param interval minutos entre medições.
+	 */
+	setHeartRateAutomaticCheck: (
+		enabled: boolean,
+		startHour: string,
+		endHour: string,
+		interval: number,
+	): Promise<void> => observed(NativeCoreNext.setHeartRateAutomaticCheck(enabled, startHour, endHour, interval)),
+
+	/**
+	 * Estresse automático. No Condor Reebok, só o `enabled` vai (`B9 01 01`), e a consulta `B9 11 01` confirma: rejeita
+	 * com `PROTOCOL` se o relógio confirmar outro estado e com `TIMEOUT` sem resposta em 4 s.
+	 */
+	setStressAutomaticCheck: (automaticStress: TechnosStressAutomaticUpdate): Promise<void> =>
+		observed(NativeCoreNext.setStressAutomaticCheck(automaticStress)),
+
+	/**
+	 * Não perturbe. No Condor Reebok, o `71` com a janela: desligado manda `00:00-00:00`; hora vazia vale 00:00; só
+	 * `alwaysOn: true` vira o dia inteiro; os dias são ignorados. Resolve depois da escrita.
+	 */
+	setNotDisturb: (notDisturb: TechnosNotDisturbSet): Promise<void> =>
+		observed(NativeCoreNext.setNotDisturb(notDisturb)),
+
+	/**
+	 * Lembrete de água. No Condor Reebok, o `77 01` com o início (vazio = 08:00), o intervalo (1 a 255 min) e a quantidade
+	 * (0 a 255); o fim e os dias são ignorados. Resolve depois da escrita.
+	 */
+	setWaterReminderV2: (waterReminder: TechnosWaterReminderUpdate): Promise<void> =>
+		observed(NativeCoreNext.setWaterReminderV2(waterReminder)),
+
+	/**
+	 * Lembrete de sedentarismo, com o liga/desliga na chave `onOff`. No Condor Reebok, só o `onOff` vai (`1D`), e a
+	 * consulta `2D` confirma: `PROTOCOL` se o relógio confirmar outro estado, `TIMEOUT` sem resposta em 4 s. O
+	 * `interval` e o `stepPerHour` nunca rejeitam (texto numérico é lido; o resto vale 0).
+	 */
+	setWalkReminder: (walkReminder: TechnosWalkReminderUpdate): Promise<void> =>
+		observed(NativeCoreNext.setWalkReminder(walkReminder)),
+
+	/**
+	 * Substitui todos os alarmes do relógio (lista vazia só apaga). Cada item usa a chave `enable` e o `repeat` de 7
+	 * caracteres a partir da segunda (`"0000000"` = único, na próxima ocorrência da hora). No Condor Reebok, o `B9 05 03`
+	 * e um `B9 05 00` por alarme, no máximo 8 (o resto é cortado com WARN); resolve depois das escritas. Ano acima de 2030
+	 * no alarme único rejeita `PROTOCOL`.
+	 */
+	setAlarm: (alarmArray: TechnosAlarmSet[]): Promise<void> => observed(NativeCoreNext.setAlarm(alarmArray)),
+
+	/**
+	 * Substitui as cidades do relógio mundial (lista vazia apaga). No Condor Reebok, consulta o relógio (`BB 00 00`),
+	 * apaga as cidades antigas e grava as novas; sem resposta à consulta em 4 s, `TIMEOUT`. Nome vazio rejeita
+	 * `INVALID_ARGUMENT`.
+	 */
+	setWorldClock: (worldClockList: TechnosWorldClockSet[]): Promise<void> =>
+		observed(NativeCoreNext.setWorldClock(worldClockList)),
+
+	/**
+	 * Filtro de notificações no relógio: nome do app ou chave fixa → ligado. No Condor Reebok, consulta os tipos do
+	 * relógio (`B9 14 00`, uma vez por conexão) e grava o filtro (`B9 04`); sem resposta à consulta, resolve sem gravar
+	 * (WARN no log). Não encaminha notificações: no iPhone elas chegam pelo ANCS; no Android o encaminhamento ainda não
+	 * existe.
+	 *
+	 * @param notifications chave → ligado.
+	 * @param shouldShowNotificationModal ignorado (o app Condor sempre manda `false`); padrão `true`, como no Core.
+	 */
+	manageNotifications: (
+		notifications: TechnosManageNotificationsUpdate,
+		shouldShowNotificationModal = true,
+	): Promise<void> => observed(NativeCoreNext.manageNotifications(notifications, shouldShowNotificationModal)),
+
+	/**
+	 * Substitui a agenda do relógio (lista vazia apaga). No Condor Reebok, apaga todos (`F2 EF`) e grava um `F2 02` por
+	 * contato com número; rejeita com `PROTOCOL` se o relógio recusar um contato ou o apagar.
+	 */
+	setAddressBook: (contactList: TechnosContactItem[]): Promise<void> =>
+		observed(NativeCoreNext.setAddressBook(contactList)),
+
+	/**
+	 * Clima de hoje (item 0) e previsão (até 7 dias, contando hoje). O nativo guarda o último clima não vazio, em °C, e o
+	 * reenvia depois de cada `setTemperatureUnit`; lista vazia resolve sem enviar e sem apagar o guardado. No Condor
+	 * Reebok, consulta a unidade (`8C`, sem rejeitar se não vier) e manda `43`, `B5 00` e `42`. No Core atual é `void`.
+	 */
+	syncWeather: (weatherList: TechnosWeatherListUpdateItem[]): Promise<void> =>
+		observed(NativeCoreNext.syncWeather(weatherList)),
+
+	/** Faz o relógio vibrar (`61` no Condor Reebok, sem resposta). Durante um sync, espera o fim. No Core é `void`. */
+	vibrateDevice: (): Promise<void> => observed(NativeCoreNext.vibrateDevice()),
+
+	/**
+	 * Abre a câmera no relógio (`66` no Condor Reebok). Depois da escrita, emite `onOpenCameraMode` e resolve; a partir
+	 * daí, cada disparo no relógio vira `onTakeAPicture`. Um `closeCameraMode` chamado antes de a abertura terminar (na
+	 * fila atrás de um sync, por exemplo) vence: ela resolve sem o evento e o modo fica fechado. No Core atual é `void`,
+	 * e o Core Android do Condor nunca emitia `onOpenCameraMode`.
+	 */
+	openCameraMode: (): Promise<void> => observed(NativeCoreNext.openCameraMode()),
+
+	/**
+	 * Fecha a câmera no relógio (`53 0E` no Condor Reebok). Desconectado, só zera o estado da câmera e resolve, sem
+	 * rejeitar (o app Condor chama ao sair da tela, muitas vezes já desconectado). No Core atual é `void`.
+	 */
+	closeCameraMode: (): Promise<void> => observed(NativeCoreNext.closeCameraMode()),
+
 	/**
 	 * Últimas entradas do log nativo, da mais nova para a mais antiga (o nativo guarda até 2000). Novo.
 	 *
@@ -210,7 +426,8 @@ const typed = <K extends keyof TechnosEventMap>(name: K): TechnosEventEmitter<Te
  * Emissores de eventos do módulo nativo, tipados com os formatos de `src/types/events.ts`.
  *
  * Uso: `const sub = TechnosEvents.onBatteryStatus(e => ...); sub.remove();`. Mesmos nomes do Core atual;
- * `onDeviceInfo`, `onError` e `onLog` são novos.
+ * `onDeviceInfo`, `onError` e `onLog` são novos. Os eventos espontâneos do relógio da fase 2 (`onFindPhone`,
+ * `onTakeAPicture`, `onDeviceRequestedCameraMode`) e o `onOpenCameraMode` não são guardados enquanto o JS não existe.
  */
 export const TechnosEvents: TechnosEventEmitters = {
 	/** Um relógio suportado apareceu na busca. */
@@ -238,6 +455,14 @@ export const TechnosEvents: TechnosEventEmitters = {
 	onSyncProgress: typed("onSyncProgress"),
 	/** Fim com sucesso de `syncDataHistory`. */
 	onSyncFinished: typed("onSyncFinished"),
+	/** O relógio começou (`status: "1"`) ou parou (`"0"`) de procurar o telefone. Só o Condor Reebok. */
+	onFindPhone: typed("onFindPhone"),
+	/** Disparo da câmera no relógio com o modo câmera aberto por `openCameraMode`. */
+	onTakeAPicture: typed("onTakeAPicture"),
+	/** A abertura de `openCameraMode` foi escrita; sai antes de a Promise resolver. */
+	onOpenCameraMode: typed("onOpenCameraMode"),
+	/** Disparo da câmera no relógio com o modo câmera fechado. */
+	onDeviceRequestedCameraMode: typed("onDeviceRequestedCameraMode"),
 	/** Falha de um comando (toda rejeição) ou do link. */
 	onError: typed("onError"),
 	/** Cada entrada do log nativo, inclusive os pacotes GATT em hex. */

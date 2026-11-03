@@ -109,8 +109,13 @@ final class HostHarness {
 	/// - Parameters:
 	///   - bluetoothOnAtStart: repassado ao `ReplayTransport`.
 	///   - attachSink: `false` simula um processo sem JS (relançado em segundo plano): nenhum módulo se liga ao controlador.
-	init(fixture: String, bluetoothOnAtStart: Bool = true, attachSink: Bool = true) throws {
-		recording = try Fixtures.load(fixture)
+	convenience init(fixture: String, bluetoothOnAtStart: Bool = true, attachSink: Bool = true) throws {
+		try self.init(recording: Fixtures.load(fixture), bluetoothOnAtStart: bluetoothOnAtStart, attachSink: attachSink)
+	}
+
+	/// Como `init(fixture:)`, com uma gravação já carregada (por exemplo, só o começo de uma fixture, `Recording.prefix`).
+	init(recording: Recording, bluetoothOnAtStart: Bool = true, attachSink: Bool = true) throws {
+		self.recording = recording
 		let replay = try ReplayTransport(recording: recording, bluetoothOnAtStart: bluetoothOnAtStart)
 		self.replay = replay
 		directory = FileManager.default.temporaryDirectory.appendingPathComponent("corenext-tests-\(UUID().uuidString)", isDirectory: true)

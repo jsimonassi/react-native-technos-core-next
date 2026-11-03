@@ -14,6 +14,10 @@ seção "Life Ultra GPS (iDO)" do Repo 1. Do lado do host, o que só o aparelho 
 chega para as escritas sem resposta (senão a fila espera 4 s e falha com `TIMEOUT`, `transporte-android.md`) e que os
 dois CCCD (`0af7`, `0af2`) são aceitos sem vínculo BLE do sistema.
 
+Todo comportamento que difere da produção (o `TechnosWareCore` na tag `v4.3.57`, que o app Condor fixa, e o app Condor
+de produção) fica em [`desvios-de-producao.md`](desvios-de-producao.md), uma entrada `DP-nn` por desvio, com a fonte, o
+motivo, o impacto, como voltar e quando revisar; aqui ficam só as pendências do host e da integração.
+
 Fontes do app Mormaii: `GTE-Mormaii/src/...`, só leitura.
 
 ## 1. Sync de 59 s contra o watchdog de 50 s do app Mormaii
@@ -293,18 +297,24 @@ nas duas plataformas. Do lado do host, o que só o aparelho confirma:
     recusado; `0x2B` (43 %) em cinco avisos, um por minuto, perto da virada do minuto (`real@10306` a `@310025`).
 - [ ] Android: a `fee1` notifica andando e o `onPedometer` sai no máximo a cada 2 s. Parcial em 2026-11-01: uma
   rajada de `FEE1` antes de qualquer leitura gerou uma releitura só, 2,35 s depois; depois dela não veio mais `FEE1`,
-  então os avisos com o estado e o limite de 2 s não foram vistos.
+  então os avisos com o estado e o limite de 2 s não foram vistos. No iPhone, os avisos com o estado foram vistos do
+  lado do rádio (item abaixo); o limite de 2 s continua sem prova no aparelho.
 - [x] iPhone: pareamento, comandos e sync pelo CoreBluetooth (2026-11-01): MTU 515 com bloco 244, as 27 escritas em
   `fee2` (o tipo sem resposta só se vê no teste do simulador; no aparelho, só o log diria) e as 5 leituras GATT, o
   vínculo clássico "não suportado" sem atrapalhar a sessão BLE (o relógio, já pareado nos Ajustes, mandou
   `F9 01 01 00` → `01` sem pedido do app; se o clássico abriu e quem o abriu não se sabe) e uma reconexão de causa não
   gravada
   ([`ios-pendente.md`](ios-pendente.md#o-que-o-iphone-mostrou-do-condor-reebok-2026-11-01)).
-- [ ] iPhone: o CCCD da `2a19`, a bateria espontânea e a `fee1` andando. Na gravação de 2026-11-01 não veio nenhuma
-  notificação de `2a19`, `fee1` ou `2a37`; é inconclusivo, não uma falha confirmada (os passos não mudaram, a única
-  virada de minuto da janela gravada coincidiu com o acerto de hora do handshake, a queda do link 1 não está gravada e,
-  sem log, o status das CCCDs não se sabe). Teste curto pedido ao usuário: andar uns 20 passos com o app aberto, ficar
-  parado 2 min e exportar, ou mandar o log do iPhone (`CentralTransport/enableNotifications … status=…`).
+- [x] iPhone: a bateria espontânea e a `fee1` andando (2026-11-01, 23:20 a 23:28). O usuário fez o teste curto com o
+  app aberto e relatou: "Testado novamente no iPhone e sim, está atualizando automaticamente." A gravação dessa
+  segunda sessão (não versionada; `ios-walk@<atMs>` no `docs/protocolo-crp.md` do Repo 1) tem a `2a19` em cada uma
+  das 8 viradas de minuto (42 → 41 → 40 %), 14 `fee1` andando (de 37 a 106 passos) sem nenhuma releitura depois do
+  `readSteps` do começo e uma rajada de dez `2a37`
+  ([`ios-pendente.md`](ios-pendente.md#a-segunda-sessão-no-iphone-2026-11-01-2320-não-versionada)). Na gravação das
+  17:04 não tinha vindo nenhuma notificação de `2a19`, `fee1` ou `2a37` (os passos não mudaram, a única virada de
+  minuto da janela coincidiu com o acerto de hora do handshake e a queda do link 1 não está gravada).
+  - [ ] O status das CCCDs laterais no log (`CentralTransport/enableNotifications … status=…`; sem log nas duas
+    sessões), os avisos em segundo plano e com a tela bloqueada, e o `onPedometer` no máximo a cada 2 s no aparelho.
 - [ ] iPhone: o efeito do transport bridging, se o iOS pede pareamento BLE (com o P85 esquecido nos Ajustes antes) e o
   `forgetDevice` (nenhum `F8` na gravação de 2026-11-01) ([`ios-pendente.md`](ios-pendente.md#condor-reebok-crp)).
 
@@ -337,9 +347,10 @@ sozinho a cada cerca de 60 s, e cada aviso vira um `onBatteryStatus` sem pedido 
 - **CDM fora do prazo.** O pareamento pelo CDM (o `CompanionDeviceManager` do Android) **não** entra no prazo de
   2026-11-05: só entra se sobrar tempo depois da fase 4. A fase 4 troca o Core no app Condor com o pareamento de hoje
   (scan, `pairDevice` e o vínculo clássico pelo `ClassicBonder`). ADR 34 do Repo 1.
-- **Esquecer nunca faz reset de fábrica.** O `forgetDevice` continua sendo o `F8` mais a remoção do vínculo clássico
-  (e a limpeza do pareamento salvo e do histórico local); o reset de fábrica (`51 02`, hoje só no catálogo do Repo 1)
-  vira um método separado na fase 2. ADR 33 do Repo 1.
+- **Esquecer nunca faz reset de fábrica.** O `forgetDevice` continua sendo o `F8` mais a remoção do vínculo clássico (e
+  a limpeza do pareamento salvo e do histórico local); o reset de fábrica (`51 02`) é o método separado `resetDevice`
+  desde a fase 2 ([`api-js.md`](api-js.md#resetdevice-promisevoid)), que não esquece o pareamento: o app decide se chama
+  os dois. ADR 33 do Repo 1.
 
 **Integração com o app Condor (fase 4).**
 
@@ -348,8 +359,8 @@ sozinho a cada cerca de 60 s, e cada aviso vira um `onBatteryStatus` sem pedido 
   `GTE-CondorSmart/src/componentsV2/Modals/PairingDisconnectModal/index.tsx:34-38`, e outros) chamam o
   `disconnectCurrentDevice` do Core (`GTE-CondorSmart/src/services/Smartwatch.ts:73-75`), que no Core de produção
   Android manda o `51 02` e depois o `F8` (`core@v4.3.57:android/src/main/java/com/crp/bluetooth/CRPService.java:269-270`).
-  Aqui o `disconnectCurrentDevice` só desconecta e o `forgetDevice` não reseta: o adaptador da fase 4 escolhe o que cada
-  botão chama (esquecer, reset ou os dois).
+  Aqui o `disconnectCurrentDevice` só desconecta, o `forgetDevice` não reseta e o `resetDevice` não esquece: o adaptador
+  da fase 4 escolhe o que cada botão chama (`forgetDevice`, `resetDevice` ou os dois, com o reset antes).
 - `deviceId`: o Core do app Condor emite no iOS o MAC que vem no anúncio (`CRPDiscovery.mac`; fase 0, CON-37), e o app
   compara MAC sem `:`; aqui o iOS dá o UUID do periférico ([`deviceId`](#deviceid-mac-no-android-uuid-no-ios)).
 - Distância e calorias: o Core Android do app Condor troca os dois campos no histórico de passos
@@ -359,7 +370,67 @@ sozinho a cada cerca de 60 s, e cada aviso vira um `onBatteryStatus` sem pedido 
 - O relógio não guarda distância nem calorias por meia hora (o P85 não respondeu `5D`/`5C` na captura): os totais do dia
   vêm da `fee1` de hoje e do `33 01` de ontem (o P85 com `MOY-VS02-2.0.0` respondeu em 2026-11-01: 77 passos, 63 m e
   4 kcal, `real@225338`; outro firmware pode não responder). Um dia antigo sem esses totais fica só com os passos.
-- `initCRPSDK` é só um alias de `initialize` no JS. Os outros eventos e métodos que o app Condor usa (atividades,
-  estresse, frequência cardíaca, metas, 12/24 h, perfil do usuário, o reset de fábrica) ficam para as fases 2 e 3 do
-  Repo 1; a lista de
-  assinaturas do app Condor ainda não foi levantada como a do app Mormaii ([seção 5](#eventos-que-o-app-assina-e-que-não-existem-aqui)).
+- `initCRPSDK` é só um alias de `initialize` no JS. Os ajustes que o app Condor manda (perfil, metas, 12/24 h, estresse
+  e frequência cardíaca automáticos e os outros), as mensagens, as interações e o reset de fábrica entraram na fase 2
+  ([seção 8](#8-fase-2-do-condor-reebok-o-que-fica-fora-e-o-que-falta-validar)); as atividades e os históricos de
+  frequência cardíaca e estresse ficam para a fase 3. A lista de assinaturas de eventos do app Condor ainda não foi
+  levantada como a do app Mormaii ([seção 5](#eventos-que-o-app-assina-e-que-não-existem-aqui)).
+
+## 8. Fase 2 do Condor Reebok: o que fica fora e o que falta validar
+
+A fase 2 (ajustes, mensagens, interações e o `resetDevice`) entrou em 2026-11-02, com os nomes e os argumentos do Core
+do app Condor ([`api-js.md`](api-js.md#ajustes-mensagens-e-interações-fase-2)). O protocolo e o que falta confirmar nele
+(bytes que só a SDK descreve, respostas opcionais, ecos) ficam no `docs/pendencias.md` do Repo 1; o roteiro de validação
+no aparelho, no [`example/README.md`](../example/README.md#checklist-da-fase-2-com-o-condor-reebok); cada diferença em
+relação à produção, com como voltar, em [`desvios-de-producao.md`](desvios-de-producao.md) (os `DP-nn` abaixo). Aqui
+ficam o host, o JS e a integração.
+
+**Fica fora da fase 2** (decisões do usuário de 2026-11-01, noite):
+
+- [ ] **Encaminhamento de notificações no Android** (o `NotificationListenerService`, a tabela pacote → app, a
+  deduplicação, a migração do filtro antigo `user_prefs`/`notification_option` e o `ComponentName`): fatia própria,
+  depois da fase 2 e até 2026-11-05. Sem ela, o Condor Android para de mostrar notificações no relógio na troca: o
+  `manageNotifications` só grava o filtro no relógio. O serviço ligado também mantém o processo vivo em segundo plano.
+  Quando entrar, o SMS respeita o botão de SMS (e não o "Outros") e os acentos só vão se o relógio os mostrar direito
+  (DP-44, DP-74).
+- [ ] **Controle de música no Android** (prioridade baixa, decisão do usuário de 2026-11-02): na validação (I4,
+  Android), o P85 mostra o nome da música pelo AVRCP, mas manda tocar/pausar, próxima e anterior só pelo RX `67`, que
+  o Core Next só registra no log, e esses botões não funcionam. O volume muda pelo AVRCP, de forma errada, sem nenhum
+  `67` no BLE. O controle por BLE (o `67` virando teclas de mídia, como na produção) entra numa fatia própria depois
+  das prioridades da migração; o `manageMusicOption` continua stub na fase 4 (DP-64).
+- [ ] **Encontrar celular nativo** (opção B: tela cheia, lanterna, toque e serviço em primeiro plano): fora. Na fase 2
+  só o evento `onFindPhone` (opção A); com o app em segundo plano, ele só chega com o processo vivo (DP-57).
+- [ ] **Câmera disparada pelo relógio com o app em segundo plano no Android** (a notificação com deep link do Core
+  antigo): fora até 2026-11-05 (DP-63).
+- [ ] **Geolocalização do clima**: o `getCurrentGeolocation` do Core antigo (`TechnosDeviceLocationManager`, formato `{
+  coords: { latitude, longitude }, neighborhood, city }`) vem para este repositório na fase 4. Sem ele, o app Condor
+  chama `syncWeather([])` e nenhum clima chega ao relógio (DP-68).
+- [ ] **Permissões do manifesto do Core antigo** (`READ_CONTACTS` e as outras) vão para o manifesto do app Condor na
+  fase 4; sem `READ_CONTACTS`, a tela Contatos para no aviso de permissão (DP-69). A biblioteca não ganhou permissão
+  nenhuma na fase 2.
+- [ ] **Serviço em primeiro plano durante o sync de ajustes**: o `CoreBridge` desliga o serviço do sync no
+  `onSyncFinished`, e o sync de ajustes do app Condor roda logo depois; com o app em segundo plano no Android, essas
+  escritas podem atrasar ou cair. Mitigação possível na fase 4: manter o trabalho em segundo plano enquanto houver
+  comando na fila (DP-66).
+- [ ] **Camada de compatibilidade da fase 4**: os stubs que resolvem sem tráfego no JS (`manageMusicOption`,
+  `setSportPlate` e os outros da [Migração do app Condor](api-js.md#migração-do-app-condor)), o método nativo genérico
+  que rejeita `NOT_SUPPORTED` com `onError`, o `checkIsNotificationServiceEnabled` que resolve `true` no Android, o
+  caminho profundo dos tipos (`react-native-technos-ware-core/src/NativeModules/type/watchSettings`), o
+  `technosAssets.IANA_TIMEZONE_INFO_LIST` e a lista de notificações por modelo (DP-70 a DP-73).
+- [ ] **Relógio Force** (pedido do usuário): também usa a SDK CRP, mas não tem Bluetooth clássico, só BLE. As ligações
+  (aqui só pelo HFP), a música (AVRCP), o vínculo clássico do pareamento e o resto que no P85 depende do clássico
+  precisam ser revalidados quando o Force entrar; o codec `0x41`/`41 FF` do Repo 1 é o caminho provável para as ligações
+  nele (DP-75).
+
+**Do JS e do app de exemplo:**
+
+- [ ] **Botão "Consultar suporte ao +" (`F2 05`)**: não entrou na aba Ajustes. O codec existe no Repo 1, mas não há
+  método nativo nem caminho de depuração para mandá-lo, e criar um mudaria o contrato JS só para a validação (o contrato
+  é o dos 23 métodos mais o `resetDevice`). Na validação, o `+` se confere na tela do relógio e no log, com os contatos
+  fictícios (um deles com `+`). Se o `F2 05` fizer falta, ele entra como método só do exemplo no `CoreBridge` e nos dois
+  hosts (DP-51).
+- [ ] **O que o P85 faz depois do `resetDevice`**: se derruba o link, se a reconexão automática volta e se o vínculo
+  clássico continua (DP-02).
+- [ ] **Avisos de "Possible unhandled promise rejection" no app Condor**: o `observed` cobre as chamadas diretas ao
+  `TechnosCore`, não os wrappers `async` do `Smartwatch.ts` chamados sem `await` (os `onHide` das telas e o `.then` de
+  `DeviceConnectedSuccessfully/index.tsx:78-85`). O adaptador da fase 4 decide se põe `.catch` nesses pontos (DP-17).

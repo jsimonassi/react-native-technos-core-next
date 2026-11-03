@@ -52,7 +52,7 @@ export type DeletedCategory = (typeof deletedCategory)[keyof typeof deletedCateg
 /**
  * Códigos de erro de `onError.code` e do `code` das Promises rejeitadas.
  *
- * Os treze primeiros vêm do módulo de protocolo (`WatchErrorCodes.kt` do `technos-watch-protocol`); os cinco
+ * Os catorze primeiros vêm do módulo de protocolo (`WatchErrorCodes.kt` do `technos-watch-protocol`); os cinco
  * últimos nascem no nativo (`HostErrorCodes.kt` do `:bridge` do mesmo repositório): antes de a sessão ser chamada ou,
  * no caso de `CLASSIC_BOND_FAILED`, num pedido ao sistema que não é da sessão. Mudou uma das duas listas nativas, mude
  * aqui e em `docs/api-js.md`.
@@ -92,6 +92,12 @@ export const errorCodes = {
 	CANCELLED: "CANCELLED",
 	/** Reservado: a sessão não emite (um pareamento novo cancela o anterior com `CANCELLED`, ADR 13 do Repo 1). */
 	BUSY: "BUSY",
+	/**
+	 * O modelo conectado não tem o ajuste ou a ação pedida (na fase 2, todo ajuste, mensagem e interação no fitGPS e no
+	 * Life Ultra GPS, e o `resetDevice` neles). Sai antes de qualquer escrita no relógio; desconectado, vale o
+	 * `NOT_READY`. No Core atual o equivalente é a rejeição `"-1"`/`"Not implemented"`.
+	 */
+	NOT_SUPPORTED: "NOT_SUPPORTED",
 	/** Permissão de Bluetooth não concedida (`BLUETOOTH_SCAN`/`BLUETOOTH_CONNECT`, ou localização abaixo do Android 12). */
 	PERMISSION_DENIED: "PERMISSION_DENIED",
 	/** O Bluetooth do telefone está desligado. */
@@ -145,6 +151,10 @@ export const technosEventNames: readonly TechnosEventName[] = [
 	"onSyncStarted",
 	"onSyncProgress",
 	"onSyncFinished",
+	"onFindPhone",
+	"onTakeAPicture",
+	"onOpenCameraMode",
+	"onDeviceRequestedCameraMode",
 	"onError",
 	"onLog",
 ];

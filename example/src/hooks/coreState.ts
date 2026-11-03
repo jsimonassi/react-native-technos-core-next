@@ -3,6 +3,7 @@ import type {
 	ConnectStateChangedEvent,
 	DeviceInfoEvent,
 	ErrorEvent,
+	FindPhoneEvent,
 	FirmwareInfoEvent,
 	HistoryPedometerEvent,
 	HistorySleepEvent,
@@ -22,6 +23,21 @@ export interface SyncState {
 	error: ErrorEvent | null;
 }
 
+/** Eventos espontâneos do relógio e da câmera (fase 2), mostrados em lista na aba Ajustes. */
+export type WatchEventName = "onFindPhone" | "onTakeAPicture" | "onOpenCameraMode" | "onDeviceRequestedCameraMode";
+
+/** Uma linha da lista de eventos do relógio. */
+export interface WatchEventEntry {
+	/** Sequencial, para chave de lista. */
+	id: number;
+	name: WatchEventName;
+	payload: TechnosEventMap[WatchEventName];
+	at: number;
+}
+
+/** Quantos eventos do relógio a aba Ajustes guarda, do mais novo para o mais antigo. */
+export const WATCH_EVENTS_CAPACITY = 30;
+
 /** Último valor de cada evento (exceto `onLog`, que fica num ring separado). */
 export interface CoreState {
 	/** Relógios vistos na busca, na ordem em que apareceram; o RSSI é o mais recente. */
@@ -33,6 +49,12 @@ export interface CoreState {
 	pedometer: PedometerEvent | null;
 	historyPedometer: HistoryPedometerEvent | null;
 	historySleep: HistorySleepEvent | null;
+	/** Último `onFindPhone` (o App vibra o telefone com `status: "1"`). */
+	findPhone: FindPhoneEvent | null;
+	/** Eventos do relógio e da câmera, do mais novo para o mais antigo (até {@link WATCH_EVENTS_CAPACITY}). */
+	watchEvents: WatchEventEntry[];
+	/** Total de eventos do relógio desde o início (dá o `id` de cada linha). */
+	watchEventTotal: number;
 	sync: SyncState;
 	lastError: ErrorEvent | null;
 	/** Epoch millis da última vez que cada evento chegou. */
@@ -57,6 +79,9 @@ export const initialCoreState: CoreState = {
 	pedometer: null,
 	historyPedometer: null,
 	historySleep: null,
+	findPhone: null,
+	watchEvents: [],
+	watchEventTotal: 0,
 	sync: { status: "idle", progress: 0, startedAt: null, finishedAt: null, error: null },
 	lastError: null,
 	receivedAt: {},
@@ -73,6 +98,19 @@ const upsertDevice = (devices: ScannedDeviceEvent[], device: ScannedDeviceEvent)
 };
 
 const clampProgress = (value: number): number => Math.max(0, Math.min(100, Math.round(value)));
+
+const pushWatchEvent = (
+	state: CoreState,
+	name: WatchEventName,
+	payload: TechnosEventMap[WatchEventName],
+	at: number,
+): Pick<CoreState, "watchEvents" | "watchEventTotal"> => {
+	const id = state.watchEventTotal + 1;
+	return {
+		watchEvents: [{ id, name, payload, at }, ...state.watchEvents].slice(0, WATCH_EVENTS_CAPACITY),
+		watchEventTotal: id,
+	};
+};
 
 /**
  * Um erro encerra o sync em andamento quando veio do próprio `syncDataHistory` ou não veio de comando nenhum
@@ -123,6 +161,17 @@ const applyEvent = (state: CoreState, action: CoreEventAction): CoreState => {
 				receivedAt,
 				sync: { ...state.sync, status: "finished", progress: 100, finishedAt: action.at, error: null },
 			};
+		case "onFindPhone":
+			return {
+				...state,
+				receivedAt,
+				findPhone: action.payload,
+				...pushWatchEvent(state, action.name, action.payload, action.at),
+			};
+		case "onTakeAPicture":
+		case "onOpenCameraMode":
+		case "onDeviceRequestedCameraMode":
+			return { ...state, receivedAt, ...pushWatchEvent(state, action.name, action.payload, action.at) };
 		case "onError":
 			return {
 				...state,

@@ -17,9 +17,11 @@
  * expect(TechnosCore.getBatteryStatus).toHaveBeenCalled();
  * ```
  *
- * Valores padrão: comandos `Promise<void>` resolvem, `isConnected` resolve `false`, `getLastPairedDevice` resolve
- * `null`, `getLogs` resolve `[]` e `exportLogs` resolve um caminho fictício. Se o app usa `resetMocks`/
- * `jest.resetAllMocks`, chame {@link mockReset} no `beforeEach` para restaurar esses valores.
+ * Valores padrão: comandos `Promise<void>` resolvem (inclusive os 23 da fase 2 e o `resetDevice`), `isConnected`
+ * resolve `false`, `getLastPairedDevice` resolve `null`, `getLogs` resolve `[]` e `exportLogs` resolve um caminho
+ * fictício. Se o app usa `resetMocks`/`jest.resetAllMocks`, chame {@link mockReset} no `beforeEach` para restaurar
+ * esses valores. O mock não passa as Promises por `observed`: uma rejeição configurada no teste
+ * (`mockRejectedValueOnce`) chega ao app como veio.
  */
 import { deletedCategory, deviceConnectStates, errorCodes, logLevels, technosEventNames } from "../constants";
 import type { TechnosCore as RealTechnosCore } from "../index";
@@ -93,6 +95,7 @@ export const TechnosCore: MockedTechnosCore = {
 	startPairingAttempt: resolved(),
 	disconnectCurrentDevice: resolved(),
 	forgetDevice: resolved(),
+	resetDevice: resolved(),
 	isConnected: jest.fn(),
 	getLastPairedDevice: jest.fn(),
 	getDeviceInfo: resolved(),
@@ -104,6 +107,29 @@ export const TechnosCore: MockedTechnosCore = {
 	getHistoryPedometer: resolved(),
 	getHistorySleep: resolved(),
 	deletedSavedData: jest.fn(),
+	setUserInfo: resolved(),
+	setGoalsV2: resolved(),
+	set12HourFormat: resolved(),
+	setTemperatureUnit: resolved(),
+	setDistanceUnit: resolved(),
+	setScreenTime: resolved(),
+	setDeviceBatterySaving: resolved(),
+	setSosHelp: resolved(),
+	setGestureControlV2: resolved(),
+	setMenstrual: resolved(),
+	setHeartRateAutomaticCheck: resolved(),
+	setStressAutomaticCheck: resolved(),
+	setNotDisturb: resolved(),
+	setWaterReminderV2: resolved(),
+	setWalkReminder: resolved(),
+	setAlarm: resolved(),
+	setWorldClock: resolved(),
+	manageNotifications: resolved(),
+	setAddressBook: resolved(),
+	syncWeather: resolved(),
+	vibrateDevice: resolved(),
+	openCameraMode: resolved(),
+	closeCameraMode: resolved(),
 	getLogs: jest.fn(),
 	exportLogs: jest.fn(),
 	clearLogs: jest.fn(),
@@ -124,6 +150,7 @@ const applyDefaults = (): void => {
 		TechnosCore.startPairingAttempt,
 		TechnosCore.disconnectCurrentDevice,
 		TechnosCore.forgetDevice,
+		TechnosCore.resetDevice,
 		TechnosCore.getDeviceInfo,
 		TechnosCore.getFirmwareInfo,
 		TechnosCore.getBatteryStatus,
@@ -132,6 +159,29 @@ const applyDefaults = (): void => {
 		TechnosCore.syncDataHistory,
 		TechnosCore.getHistoryPedometer,
 		TechnosCore.getHistorySleep,
+		TechnosCore.setUserInfo,
+		TechnosCore.setGoalsV2,
+		TechnosCore.set12HourFormat,
+		TechnosCore.setTemperatureUnit,
+		TechnosCore.setDistanceUnit,
+		TechnosCore.setScreenTime,
+		TechnosCore.setDeviceBatterySaving,
+		TechnosCore.setSosHelp,
+		TechnosCore.setGestureControlV2,
+		TechnosCore.setMenstrual,
+		TechnosCore.setHeartRateAutomaticCheck,
+		TechnosCore.setStressAutomaticCheck,
+		TechnosCore.setNotDisturb,
+		TechnosCore.setWaterReminderV2,
+		TechnosCore.setWalkReminder,
+		TechnosCore.setAlarm,
+		TechnosCore.setWorldClock,
+		TechnosCore.manageNotifications,
+		TechnosCore.setAddressBook,
+		TechnosCore.syncWeather,
+		TechnosCore.vibrateDevice,
+		TechnosCore.openCameraMode,
+		TechnosCore.closeCameraMode,
 	] as jest.Mock<Promise<void>, unknown[]>[];
 	for (const method of promiseMethods) {
 		method.mockImplementation(() => Promise.resolve());
@@ -168,6 +218,10 @@ export const TechnosEvents: TechnosEventEmitters = {
 	onSyncStarted: createEmitter("onSyncStarted"),
 	onSyncProgress: createEmitter("onSyncProgress"),
 	onSyncFinished: createEmitter("onSyncFinished"),
+	onFindPhone: createEmitter("onFindPhone"),
+	onTakeAPicture: createEmitter("onTakeAPicture"),
+	onOpenCameraMode: createEmitter("onOpenCameraMode"),
+	onDeviceRequestedCameraMode: createEmitter("onDeviceRequestedCameraMode"),
 	onError: createEmitter("onError"),
 	onLog: createEmitter("onLog"),
 };

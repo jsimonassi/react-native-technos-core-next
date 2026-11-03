@@ -77,28 +77,83 @@ final class IdoTxMasker: PacketMasker {
 	}
 }
 
-/// Port da `CrpTxMasker` (`CrpReplay.kt` do kit de teste do Repo 1): no frame `31` (acerto de hora, `FE EA b2 0A 31`)
-/// zera os bytes 5 a 8, os segundos que dependem do relógio do replay; o `08` do fim e todos os outros frames (inclusive
-/// o fuso `BB 07 00`) são comparados inteiros. Todo frame da fase 1 cabe num pacote, então não há estado.
+/// Port da `CrpTxMasker` (`CrpReplay.kt` do kit de teste do Repo 1). Guarda estado entre pacotes, porque um frame pode
+/// ocupar várias escritas (com bloco de 20, um `F2 02` sai em três; as continuações não têm cabeçalho). Bytes mascarados
+/// viram `00`:
+/// - no frame `31` (acerto de hora, `len` `0x0A`), os bytes 5 a 8, os segundos que dependem do relógio do replay
+///   (parado no `recordedAt`); o `08` do fim fica;
+/// - num frame com dado pessoal (`privatePrefix`: `12`, `75`, `41`, `42`, `43`, `B5`, `F2 02`), o payload depois do
+///   prefixo mantido, até o fim do frame, inclusive nas continuações. A gravação já tem esses bytes zerados (o driver
+///   redige o que vai para o `WatchLogger.frame`: ADR 36 do Repo 1, D14 da fase 2) e o replay escreve os reais, então o
+///   TX privado é comparado por `(cmd, sub, tamanho)` nos multiplexados (`B5` mantém o sub; `F2 02`, o `02` e o id) e
+///   por `(cmd, tamanho)` nos outros.
+///
+/// Todos os outros frames (inclusive o fuso `BB 07 00` e o `41 FF` de fim de ligação) são comparados inteiros.
 final class CrpTxMasker: PacketMasker {
+	private static let headerSize = 5
 	private static let setTimeLength = 0x0A
 	private static let setTime: UInt8 = 0x31
 
+	/// Bytes que faltam do frame atual (continuações); zero fora de um frame.
+	private var remaining = 0
+	/// Offset, no frame atual, do primeiro byte a zerar (`-1` = nenhum).
+	private var zeroFrom = -1
+	/// Bytes do frame atual já vistos.
+	private var offset = 0
+
 	func mask(_ packet: [UInt8]) -> [UInt8] {
 		var out = packet
-		if CrpTxMasker.totalLength(out) == CrpTxMasker.setTimeLength, out.count >= CrpTxMasker.setTimeLength, out[4] == CrpTxMasker.setTime {
+		if remaining > 0 {
+			for index in out.indices where zeroFrom >= 0 && offset + index >= zeroFrom { out[index] = 0 }
+			offset += out.count
+			remaining -= out.count
+			if remaining <= 0 { reset() }
+			return out
+		}
+		guard let total = CrpTxMasker.totalLength(out) else { return out }
+		let cmd = out[4]
+		let payload = Array(out[CrpTxMasker.headerSize..<min(out.count, total)])
+		// O primeiro pacote tem pelo menos 15 bytes de payload (bloco de 20), o bastante para o prefixo e o sub; o `41 FF`
+		// tem 6 bytes e sempre cabe inteiro.
+		zeroFrom = CrpTxMasker.privatePrefix(cmd: cmd, payload: payload).map { CrpTxMasker.headerSize + $0 } ?? -1
+		if cmd == CrpTxMasker.setTime, total == CrpTxMasker.setTimeLength, out.count >= CrpTxMasker.setTimeLength {
 			for index in 5...8 { out[index] = 0 }
 		}
+		for index in out.indices where zeroFrom >= 0 && index >= zeroFrom && index < total { out[index] = 0 }
+		offset = out.count
+		remaining = total - out.count
+		if remaining <= 0 { reset() }
 		return out
 	}
 
-	/// `cmd` ou `cmd/sub` (o primeiro byte do payload), como os rótulos do `CrpReplayScenario`: `5A/00`, `B7/0E`, `BB/16`,
-	/// `31`, `BB/07`, `59/00`, `33/01`, `32`, `F8`. O `31` fica sem sub (o payload é a hora).
+	/// `cmd` ou `cmd/sub` (o primeiro byte do payload), um nível só: `5A/00`, `B7/0E`, `BB/16`, `31`, `BB/07`, `59/00`,
+	/// `33/01`, `32`, `F8`, `61`, `53/0E`. O `CrpReplayScenario` do Repo 1 usa dois níveis no `B6`, `B9` e `BB` (`BB/16/00`);
+	/// aqui um nível basta para saber em que ponto a conversa está. O `31` fica sem sub (o payload é a hora), e um frame
+	/// privado só mostra o prefixo que a redação mantém (`12`, `41`, `B5/00`, `F2/02`), para a chave nunca levar dado
+	/// pessoal. Sem estado: um pacote de continuação devolve `nil`, porque não começa com `FE EA`.
 	func frameKey(_ packet: [UInt8]) -> String? {
 		guard let total = CrpTxMasker.totalLength(packet), packet.count >= 5 else { return nil }
 		let cmd = packet[4]
 		if cmd == CrpTxMasker.setTime || total <= 5 || packet.count <= 5 { return hex2(cmd) }
+		let payload = Array(packet[CrpTxMasker.headerSize..<min(packet.count, total)])
+		if CrpTxMasker.privatePrefix(cmd: cmd, payload: payload) == 0 { return hex2(cmd) }
 		return "\(hex2(cmd))/\(hex2(packet[5]))"
+	}
+
+	/// Cópia do `CrpCommand.privatePrefix` do Repo 1 (ADR 36): quantos bytes do payload ficam na gravação; o resto é
+	/// zerado, do mesmo tamanho. `nil` quando o frame não é privado e vai inteiro.
+	/// - `12` (perfil), `75` (ciclo menstrual), `42` (previsão) e `43` (clima de hoje, com a cidade) → 0;
+	/// - `41` (notificação) → 0, menos o payload exato `FF` (fim de ligação), que não tem dado;
+	/// - `B5` → 1 (o sub: `00` clima de hoje, `01` mensagens de SOS);
+	/// - `F2 02` (um contato) → 2 (o `02` e o id); os outros subs do `F2` não são privados.
+	static func privatePrefix(cmd: UInt8, payload: [UInt8]) -> Int? {
+		switch cmd {
+		case 0x12, 0x75, 0x42, 0x43: return 0
+		case 0x41: return payload == [0xFF] ? nil : 0
+		case 0xB5: return 1
+		case 0xF2: return payload.first == 0x02 ? 2 : nil
+		default: return nil
+		}
 	}
 
 	/// Comprimento total do frame (`FE EA` e nibble alto do byte 2 em 1, 2 ou 3; 12 bits sem sinal), ou `nil` se o
@@ -109,5 +164,11 @@ final class CrpTxMasker: PacketMasker {
 		guard (1...3).contains(high) else { return nil }
 		let total = Int(packet[2] & 0x0F) << 8 | Int(packet[3])
 		return total < 5 ? nil : total
+	}
+
+	private func reset() {
+		remaining = 0
+		zeroFrom = -1
+		offset = 0
 	}
 }

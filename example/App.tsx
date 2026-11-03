@@ -6,13 +6,15 @@ import { StateBadge } from "./src/components/StateBadge";
 import { TabBar, type TabItem } from "./src/components/TabBar";
 import { describeError } from "./src/helpers/format";
 import { useCoreEvents } from "./src/hooks/useCoreEvents";
+import { useFindPhoneVibration } from "./src/hooks/useFindPhoneVibration";
 import { usePermissions } from "./src/hooks/usePermissions";
 import { ConnectionScreen, type InitState } from "./src/screens/ConnectionScreen";
 import { DataScreen } from "./src/screens/DataScreen";
 import { LogScreen } from "./src/screens/LogScreen";
+import { SettingsScreen } from "./src/screens/SettingsScreen";
 import { useIsDark, usePalette, type Palette } from "./src/theme";
 
-type TabKey = "connection" | "data" | "log";
+type TabKey = "connection" | "data" | "settings" | "log";
 
 const useInitialize = (permissionsGranted: boolean): InitState => {
 	const [status, setStatus] = useState<InitState["status"]>("pending");
@@ -57,6 +59,7 @@ const AppContent = () => {
 	const permissions = usePermissions();
 	const init = useInitialize(permissions.status === "granted");
 	const [tab, setTab] = useState<TabKey>("connection");
+	useFindPhoneVibration(core.state.findPhone, core.state.receivedAt.onFindPhone);
 
 	useEffect(() => {
 		if (core.state.connection) {
@@ -68,6 +71,7 @@ const AppContent = () => {
 		() => [
 			{ key: "connection", label: "Conexão" },
 			{ key: "data", label: "Dados" },
+			{ key: "settings", label: "Ajustes" },
 			{ key: "log", label: "Log", badge: core.logs.length > 0 ? String(core.logs.length) : undefined },
 		],
 		[core.logs.length],
@@ -80,7 +84,7 @@ const AppContent = () => {
 				<Text style={styles.title}>Technos Core Next</Text>
 				<StateBadge connection={core.state.connection} />
 			</View>
-			{/* As três abas ficam montadas para não perder resultados ao trocar; só a ativa aparece. */}
+			{/* As abas ficam montadas para não perder resultados ao trocar; só a ativa aparece. */}
 			<View style={[styles.page, tab !== "connection" && styles.hidden]}>
 				<ConnectionScreen
 					state={core.state}
@@ -93,6 +97,9 @@ const AppContent = () => {
 			<View style={[styles.page, tab !== "data" && styles.hidden]}>
 				<DataScreen state={core.state} />
 			</View>
+			<View style={[styles.page, tab !== "settings" && styles.hidden]}>
+				<SettingsScreen state={core.state} />
+			</View>
 			<View style={[styles.page, tab !== "log" && styles.hidden]}>
 				<LogScreen logs={core.logs} onClear={core.clearLogs} onReload={core.reloadLogs} />
 			</View>
@@ -101,7 +108,7 @@ const AppContent = () => {
 	);
 };
 
-/** App de exemplo do `react-native-technos-core-next`: abas Conexão, Dados e Log. */
+/** App de exemplo do `react-native-technos-core-next`: abas Conexão, Dados, Ajustes e Log. */
 const App = () => (
 	<SafeAreaProvider>
 		<AppContent />

@@ -129,6 +129,17 @@ final class ReplayTransport: NSObject, HostTransport {
 		}
 	}
 
+	/// Uma notificação do relógio fora da gravação (um aviso espontâneo, como o `62` do encontrar celular ou o `66` do
+	/// disparo da câmera), entregue na fila do transporte como os RX gravados. Com o link fechado, não sai nada.
+	func notify(characteristic: String, hex: String) {
+		guard let value = Recording.decodeHex(hex) else { preconditionFailure("bad hex \(hex)") }
+		queue.async {
+			guard self.linkOpen else { return }
+			self.notifications += 1
+			self.events?.onNotification(characteristic: GattUuid.shared.normalize(uuid: characteristic.uppercased()), data: Data(value))
+		}
+	}
+
 	/// O Bluetooth do telefone ligou ou desligou, com a mesma decisão e a mesma ordem do `CentralTransport.handlePower`.
 	func setBluetooth(enabled: Bool) {
 		queue.async {

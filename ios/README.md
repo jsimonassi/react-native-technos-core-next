@@ -16,18 +16,22 @@ ios/
 
 ## O que existe
 
-- **Shim do TurboModule** (`CoreNext/turbomodule/RCTNativeCoreNext.mm`): os 23 métodos do spec, cada um uma chamada ao
-  `TWPCoreBridge`, e o `TWPCoreEventSink` (os 13 eventos). Registrado pelo `codegenConfig.ios.modulesProvider` do
+- **Shim do TurboModule** (`CoreNext/turbomodule/RCTNativeCoreNext.mm`): os 47 métodos do spec (23 da fase 1 e, desde
+  2026-11-02, os 24 de ajustes, mensagens e interações da fase 2 do Condor Reebok), cada um uma chamada ao
+  `TWPCoreBridge`, e o `TWPCoreEventSink` (os 17 eventos). Registrado pelo `codegenConfig.ios.modulesProvider` do
   `package.json` (o codegen escreve `"NativeCoreNext": "RCTNativeCoreNext"` no `RCTModuleProviders.mm` do app).
 - **Host Swift** (`CoreNext/`): `CoreGraph` (um por processo), `IosCoreHost` (o `CoreHost`; o vínculo Bluetooth
   clássico do Condor Reebok responde "não suportado"), `CentralTransport` (o `Transport` sobre o CoreBluetooth),
   `FileSampleStore`, `PairingStore`, `RingLogger`, `FrameRecorder` e `CoreNext.bootstrap(launchOptions:)` para a
   restauração do Bluetooth.
-- **Testes no simulador** (`Tests/`, 54 testes): o host inteiro com o `CoreBridge` e a sessão do framework, sobre um
+- **Testes no simulador** (`Tests/`, 66 testes): o host inteiro com o `CoreBridge` e a sessão do framework, sobre um
   transporte que responde com as gravações reais do fitGPS (167 e 32 TX), do Life Ultra GPS (12 TX) e do Condor Reebok
   (38 TX e 7 leituras GATT, gravada num Android; 27 TX e 5 leituras GATT, gravada num iPhone) e com a sintética do Condor Reebok (12 TX e 3 leituras GATT), mais o contrato B, a fila de operações, a restauração, o re-arme (e o
   vínculo apagado que não re-arma), o status de cada `NSError`, o tipo de escrita, as opções do `connect` (transport
-  bridging) e o vínculo clássico "não suportado", sem CoreBluetooth.
+  bridging) e o vínculo clássico "não suportado", sem CoreBluetooth. Da fase 2: os ajustes com os valores do Foundation
+  que o shim repassa (`NSNumber`, `CFBoolean`, `NSNull`), a redação dos frames privados no log e no export, os eventos
+  do relógio e a câmera, a máscara do replay com os TX privados e a leitura do fonte do shim (cada método do spec,
+  cada argumento de objeto conferido contra `nil` e cada evento com o seu ramo).
 - **App de exemplo** (`../example/ios`): `pod install`, build Debug no simulador e Release para iPhone (sem assinatura
   aqui), `NSBluetoothAlwaysUsageDescription`, `UIBackgroundModes` `bluetooth-central`, export visível no app Arquivos e
   `CoreNext.bootstrap` no `AppDelegate`.
@@ -35,7 +39,10 @@ ios/
 Rodou num iPhone com os dois relógios em 2026-10-30 (Release; sem reconexão nem segundo plano): o resultado e o que falta
 estão no [`docs/ios-pendente.md`](../docs/ios-pendente.md#o-que-o-iphone-mostrou-2026-10-30), e o roteiro, no
 [`example/README.md`](../example/README.md#rodar-no-iphone). Com o Condor Reebok, rodou num iPhone em 2026-11-01
-([o que mostrou](../docs/ios-pendente.md#o-que-o-iphone-mostrou-do-condor-reebok-2026-11-01)).
+([o que mostrou](../docs/ios-pendente.md#o-que-o-iphone-mostrou-do-condor-reebok-2026-11-01)) e, numa segunda sessão
+no mesmo dia, com o app aberto, o relógio mandou os avisos espontâneos de bateria e de passos e o usuário relatou que a
+tela "está atualizando automaticamente" (dedução: o host entregou `onBatteryStatus` e `onPedometer` ao JS; sem log)
+([a segunda sessão](../docs/ios-pendente.md#a-segunda-sessão-no-iphone-2026-11-01-2320-não-versionada)).
 
 ## O framework do Repo 1
 
@@ -72,7 +79,7 @@ cd ios
 xcodebuild test -scheme TechnosCoreNext -destination "platform=iOS Simulator,id=$SIM"
 ```
 
-Detalhes, o que cada teste confere e as linhas `IOS-REPLAY`: [`Tests/README.md`](Tests/README.md).
+Detalhes, o que cada teste confere e as linhas `IOS-REPLAY` e `IOS-PHASE2`: [`Tests/README.md`](Tests/README.md).
 
 ## App de exemplo no simulador
 

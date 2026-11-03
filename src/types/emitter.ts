@@ -2,16 +2,20 @@ import type {
 	BatteryStatusEvent,
 	ConnectStateChangedEvent,
 	DeviceInfoEvent,
+	DeviceRequestedCameraModeEvent,
 	ErrorEvent,
+	FindPhoneEvent,
 	FirmwareInfoEvent,
 	HistoryPedometerEvent,
 	HistorySleepEvent,
 	LogEvent,
+	OpenCameraModeEvent,
 	PedometerEvent,
 	ScannedDeviceEvent,
 	SyncFinishedEvent,
 	SyncProgressEvent,
 	SyncStartedEvent,
+	TakeAPictureEvent,
 } from "./events";
 
 /**
@@ -43,6 +47,10 @@ export interface TechnosEventMap {
 	onSyncStarted: SyncStartedEvent;
 	onSyncProgress: SyncProgressEvent;
 	onSyncFinished: SyncFinishedEvent;
+	onFindPhone: FindPhoneEvent;
+	onTakeAPicture: TakeAPictureEvent;
+	onOpenCameraMode: OpenCameraModeEvent;
+	onDeviceRequestedCameraMode: DeviceRequestedCameraModeEvent;
 	onError: ErrorEvent;
 	onLog: LogEvent;
 }

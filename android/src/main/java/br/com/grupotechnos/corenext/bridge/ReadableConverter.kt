@@ -6,10 +6,13 @@ import com.facebook.react.bridge.ReadableType
 
 /**
  * O caminho inverso do [WritableConverter]: `ReadableArray`/`ReadableMap` que chegam do JS → `List`/`Map` puros, a
- * forma que o `CoreBridge` (Repo 1) recebe (hoje só no `deletedSavedData`).
+ * forma que o `CoreBridge` (Repo 1) recebe: o `deletedSavedData` e os dicionários e listas dos ajustes, mensagens e
+ * interações da fase 2 (`setUserInfo`, `setAlarm`, `syncWeather`…).
  *
  * Tipos de saída, pelo `ReadableType` de cada valor: `null`, [Boolean], número sempre como [Double] (o JS só tem
- * `number`), [String], `Map<String, Any?>` (na ordem das chaves do mapa) e `List<Any?>`, aninhados.
+ * `number`), [String], `Map<String, Any?>` (na ordem das chaves do mapa) e `List<Any?>`, aninhados. Não interpreta
+ * nada: um booleano mandado como número continua [Double], um elemento nulo de lista continua `null` na mesma posição e
+ * uma chave ausente continua ausente; o que cada um vale é regra do `SettingsMapper` do `CoreBridge` (D7 da fase 2).
  *
  * Por que não o `ReadableArray.toArrayList()`: o tipo dos itens depende da implementação. O `ReadableNativeArray` (o
  * que o TurboModule recebe) devolve `HashMap` para um mapa aninhado, mas o `JavaOnlyArray` devolve o próprio

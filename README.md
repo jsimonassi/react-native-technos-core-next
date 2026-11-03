@@ -30,13 +30,26 @@ bridging. Rodou com o relógio num Android em 2026-11-01 (pareamento, vínculo a
 firmware, hora, passos de hoje e de ontem, sync e Bluetooth desligado e religado; a gravação virou fixture real no
 Repo 1 e passa também pelo host iOS no simulador) e, no mesmo dia, num iPhone (pareamento com o relógio já pareado
 nos Ajustes, firmware, bateria, hora, Refresh steps, sync e uma reconexão; a gravação virou a fixture
-`ios-pair-commands-sync-reconnect.jsonl` do Repo 1). O usuário validou a fase 1 nas duas plataformas. No iPhone não
-foram gravados o esquecer nem notificações espontâneas (bateria, passos), o que fica como pendência inconclusiva
+`ios-pair-commands-sync-reconnect.jsonl` do Repo 1). O usuário validou a fase 1 nas duas plataformas. No iPhone o
+esquecer não foi gravado. Os avisos espontâneos (bateria a cada minuto, passos andando e uma rajada de frequência
+cardíaca) não vieram nessa gravação e vieram numa segunda sessão no iPhone, às 23:20, gravada e não versionada; o
+usuário relatou que a tela "está atualizando automaticamente"
 ([`docs/ios-pendente.md`](docs/ios-pendente.md#condor-reebok-crp)). O `forgetDevice` nunca faz reset de fábrica (o
-reset vira um método separado na fase 2), e o pareamento pelo CDM do Android ficou fora do prazo de 2026-11-05 (ADRs
-33 e 34 do Repo 1). O roteiro com o relógio está no
+reset é o `resetDevice`, um método separado), e o pareamento pelo CDM do Android ficou fora do prazo de 2026-11-05
+(ADRs 33 e 34 do Repo 1). O roteiro com o relógio está no
 [`example/README.md`](example/README.md#checklist-com-o-condor-reebok-crp), e o que falta, na seção 7 do
 [`docs/pendencias.md`](docs/pendencias.md#7-condor-reebok-crp).
+
+**Condor Reebok, fase 2 (2026-11-02, ainda sem validação no relógio).** Os 23 métodos de ajustes, mensagens e
+interações do Core que o app Condor usa (perfil, metas, unidades, lembretes, alarmes, relógio mundial, contatos, clima,
+filtro de notificações, vibrar e câmera), o `resetDevice` e os eventos `onFindPhone`, `onTakeAPicture`,
+`onDeviceRequestedCameraMode` e `onOpenCameraMode`, com os nomes e os argumentos do Core
+([`docs/api-js.md`](docs/api-js.md#ajustes-mensagens-e-interações-fase-2)); o fitGPS e o Life Ultra GPS rejeitam todos
+com `NOT_SUPPORTED`. Ficam fora o encaminhamento de notificações do Android (fatia própria), as ligações pelo `0x41`
+(só o HFP), o encontrar celular nativo, a câmera disparada pelo relógio com o app em segundo plano no Android e a
+geolocalização do clima (fase 4). Tudo que difere da produção está em
+[`docs/desvios-de-producao.md`](docs/desvios-de-producao.md); o roteiro de validação, no
+[`example/README.md`](example/README.md#checklist-da-fase-2-com-o-condor-reebok).
 
 ## Início rápido
 
@@ -99,7 +112,7 @@ android/             # módulo Android (Kotlin): NativeCoreNextModule (casca sob
 ios/                 # pod iOS (o podspec fica na raiz): CoreNext/ com o host Swift (CentralTransport, CoreGraph,
                      # IosCoreHost, stores, log) e o shim ObjC++ do TurboModule; Tests/ (simulador); scripts/
 example/             # app RN 0.81.4 com as abas Conexão, Dados e Log
-docs/                # arquitetura, API JS, transporte Android, iOS pendente, pendências
+docs/                # arquitetura, API JS, transporte Android, iOS pendente, pendências, desvios de produção
 ```
 
 Cada pasta de `android/.../corenext/` e de `ios/CoreNext/` tem um `README.md` com o que faz, o que não faz e de quem
@@ -115,6 +128,7 @@ depende.
 | [`docs/transporte-android.md`](docs/transporte-android.md) | Fila GATT, autoConnect, MTU, CCCD, write type, scan, vínculo Bluetooth clássico, Bluetooth on/off e limites conhecidos |
 | [`docs/ios-pendente.md`](docs/ios-pendente.md) | iOS: estado e pendências (peças, decisões do CoreBluetooth, o que o primeiro teste no iPhone mostrou, o que foi verificado sem iPhone, o que falta) |
 | [`docs/pendencias.md`](docs/pendencias.md) | Pendências do host e da integração com o app Mormaii (sync de 59 s contra o watchdog de 50 s, polling de passos, `deviceId`, eventos sem equivalente), o achado de que o Core de produção provavelmente infla os passos do fitGPS no backend e o que falta validar do Condor Reebok |
+| [`docs/desvios-de-producao.md`](docs/desvios-de-producao.md) | Tudo o que este core faz diferente da produção (`TechnosWareCore` `v4.3.57` e o app Condor), com a fonte, o motivo, o impacto, como voltar e quando revisar |
 | [`example/README.md`](example/README.md) | Rodar o exemplo no Android e no iPhone, permissões, exportar o log, checklists com os relógios |
 | [`src/README.md`](src/README.md) | Arquivos da camada JS |
 | [`ios/README.md`](ios/README.md) | O pod iOS, o XCFramework do Repo 1 (`sync-xcframework.sh`), testes no simulador e builds |

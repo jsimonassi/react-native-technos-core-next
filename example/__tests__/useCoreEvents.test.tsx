@@ -148,6 +148,34 @@ describe("useCoreEvents", () => {
 		expect(current.state.lastError).toBeNull();
 	});
 
+	it("guarda os eventos do relógio da fase 2 em lista, do mais novo para o mais antigo", async () => {
+		await render();
+		act(() => {
+			mockEmit("onOpenCameraMode", {});
+			mockEmit("onTakeAPicture", {});
+			mockEmit("onDeviceRequestedCameraMode", {});
+			mockEmit("onFindPhone", { status: "1" });
+		});
+
+		expect(current.state.watchEvents.map(entry => entry.name)).toEqual([
+			"onFindPhone",
+			"onDeviceRequestedCameraMode",
+			"onTakeAPicture",
+			"onOpenCameraMode",
+		]);
+		expect(current.state.watchEvents[0].payload).toEqual({ status: "1" });
+		expect(current.state.findPhone).toEqual({ status: "1" });
+		expect(new Set(current.state.watchEvents.map(entry => entry.id)).size).toBe(4);
+
+		act(() => {
+			for (let index = 0; index < 40; index++) {
+				mockEmit("onTakeAPicture", {});
+			}
+		});
+		expect(current.state.watchEvents).toHaveLength(30);
+		expect(current.state.watchEventTotal).toBe(44);
+	});
+
 	it("mantém o log como ring de 2000, do mais novo para o mais antigo", async () => {
 		await render();
 		act(() => {
