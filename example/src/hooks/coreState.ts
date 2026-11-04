@@ -183,6 +183,18 @@ const applyEvent = (state: CoreState, action: CoreEventAction): CoreState => {
 			};
 		case "onLog":
 			return state;
+		// Fase 3: por enquanto só o horário de chegada; as abas Dados e Atividade ainda não mostram estes eventos.
+		case "onHistoryHeartRate":
+		case "onHistoryStress":
+		case "onHistorySpo2":
+		case "onHistoryActivityV2":
+		case "onActivityStartedV2":
+		case "onActivityStatusV2":
+		case "onActivityUpdateV2":
+		case "onActivityCompletedV2":
+		case "onActivityError":
+		case "onActivityRealTimeSpeed":
+			return { ...state, receivedAt };
 	}
 };
 

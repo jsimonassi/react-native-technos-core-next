@@ -126,6 +126,127 @@ export interface HistorySleepEvent {
 	historysleep: SleepHistoryDay[];
 }
 
+/**
+ * Média de uma hora completa em `onHistoryHeartRate` (`avgValues`), igual ao `TechnosHeartRateHistoryAvgValues` do Core
+ * atual. Média com divisão inteira, mínimo e máximo das leituras da hora.
+ */
+export interface HeartRateHourAverage {
+	/** Início da hora local, ISO com offset (`"2026-11-02T12:00:00-03:00"`). */
+	timestamp: string;
+	value: number;
+	min: number;
+	max: number;
+}
+
+/**
+ * Leitura da hora local corrente em `onHistoryHeartRate` (`otherValues`), igual ao `TechnosHeartRateHistoryOtherValues`
+ * do Core atual. O Core Next manda só `timestamp` e `value`.
+ */
+export interface HeartRateSample {
+	/** Instante da leitura, ISO com offset. */
+	timestamp: string;
+	value: number;
+	min?: number;
+	max?: number;
+}
+
+/** Leituras de um dia em `onHistoryHeartRate`, igual ao `TechnosHeartRateHistoryDayItem` do Core atual. */
+export interface HeartRateHistoryItems {
+	/** Horas completas, em ordem crescente (DP-109). */
+	avgValues: HeartRateHourAverage[];
+	/** Leituras da hora local corrente, que ainda não fechou. */
+	otherValues: HeartRateSample[];
+}
+
+/** Um dia em `onHistoryHeartRate`, igual ao `TechnosHeartRateHistoryDay` do Core atual. */
+export interface HeartRateHistoryDay {
+	/** Dia local, `"yyyy-MM-dd"`. */
+	date: string;
+	items: HeartRateHistoryItems;
+}
+
+/**
+ * `onHistoryHeartRate`, igual ao `TechnosHeartRateHistory` do Core atual: as horas ainda não confirmadas por
+ * `deletedSavedData` (categoria `HEART_HERT`), com os dias em ordem crescente. Só o Condor Reebok mede; nos outros
+ * modelos a lista vem vazia (DP-110).
+ */
+export interface HistoryHeartRateEvent {
+	historyheartrate: HeartRateHistoryDay[];
+}
+
+/**
+ * Média de uma hora completa em `onHistoryStress` (`avgValues`), igual ao `TechnosStressHistoryAvgValues` do Core
+ * atual. Média arredondada (DP-106), mínimo e máximo das leituras da hora.
+ */
+export interface StressHourAverage {
+	/** Início da hora local, ISO com offset. */
+	timestamp: string;
+	value: number;
+	min: number;
+	max: number;
+	/**
+	 * Leituras da hora maiores que 0, completadas com 0 até 2 itens (formato do Core para o Condor Reebok). `null` num
+	 * modelo que não é da família CRP; no Core o campo é só opcional.
+	 */
+	stressValues?: number[] | null;
+}
+
+/**
+ * Leituras da hora local corrente em `onHistoryStress` (`otherValues`), igual ao `TechnosStressHistoryOtherValues` do
+ * Core atual. O Core Next manda o mesmo formato de {@link StressHourAverage}.
+ */
+export interface StressSample {
+	timestamp: string;
+	value: number;
+	min?: number;
+	max?: number;
+	stressValues?: number[] | null;
+}
+
+/** Leituras de um dia em `onHistoryStress`, igual ao `TechnosStressHistoryDayItem` do Core atual. */
+export interface StressHistoryItems {
+	/** Horas completas, em ordem crescente (DP-109). */
+	avgValues: StressHourAverage[];
+	/** Leituras da hora local corrente, que ainda não fechou. */
+	otherValues: StressSample[];
+}
+
+/** Um dia em `onHistoryStress`, igual ao `TechnosStressHistoryDay` do Core atual. */
+export interface StressHistoryDay {
+	/** Dia local, `"yyyy-MM-dd"`. */
+	date: string;
+	items: StressHistoryItems;
+}
+
+/**
+ * `onHistoryStress`, igual ao `TechnosStressHistory` do Core atual: as horas ainda não confirmadas por
+ * `deletedSavedData` (categoria `STRESS`), com os dias em ordem crescente. Só o Condor Reebok mede; nos outros
+ * modelos a lista vem vazia (DP-110).
+ */
+export interface HistoryStressEvent {
+	historystress: StressHistoryDay[];
+}
+
+/** Uma leitura de SpO2, igual ao `TechnosOxygenationHistoryDayItem` do Core atual. O Core Next nunca manda. */
+export interface Spo2HistoryItem {
+	date: string;
+	spo2Value: number;
+}
+
+/** Um dia em `onHistorySpo2`, igual ao `TechnosOxygenationHistoryDay` do Core atual. O Core Next nunca manda. */
+export interface Spo2HistoryDay {
+	date: string;
+	items: Spo2HistoryItem[];
+}
+
+/**
+ * `onHistorySpo2`, igual ao `TechnosOxygenationHistory` do Core atual. Sempre `{ historyspo2: [] }`: nenhum modelo da
+ * PoC lê SpO2, e a produção também nunca pedia ao Condor Reebok (F3-D7).
+ */
+export interface HistorySpo2Event {
+	historyspo2: Spo2HistoryDay[];
+}
+
 /** `onSyncStarted` e `onSyncFinished` não têm campos. */
 export type SyncStartedEvent = Record<string, never>;
 export type SyncFinishedEvent = Record<string, never>;

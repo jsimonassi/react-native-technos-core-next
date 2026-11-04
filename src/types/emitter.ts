@@ -1,4 +1,10 @@
 import type {
+	TechnosActivityError,
+	TechnosActivityHistoryV2,
+	TechnosActivityHistoryV2Activity,
+	TechnosActivityRealTimeSpeed,
+} from "./activity";
+import type {
 	BatteryStatusEvent,
 	ConnectStateChangedEvent,
 	DeviceInfoEvent,
@@ -6,8 +12,11 @@ import type {
 	ErrorEvent,
 	FindPhoneEvent,
 	FirmwareInfoEvent,
+	HistoryHeartRateEvent,
 	HistoryPedometerEvent,
 	HistorySleepEvent,
+	HistorySpo2Event,
+	HistoryStressEvent,
 	LogEvent,
 	OpenCameraModeEvent,
 	PedometerEvent,
@@ -51,6 +60,16 @@ export interface TechnosEventMap {
 	onTakeAPicture: TakeAPictureEvent;
 	onOpenCameraMode: OpenCameraModeEvent;
 	onDeviceRequestedCameraMode: DeviceRequestedCameraModeEvent;
+	onHistoryHeartRate: HistoryHeartRateEvent;
+	onHistoryStress: HistoryStressEvent;
+	onHistorySpo2: HistorySpo2Event;
+	onHistoryActivityV2: TechnosActivityHistoryV2;
+	onActivityStartedV2: TechnosActivityHistoryV2Activity;
+	onActivityStatusV2: TechnosActivityHistoryV2Activity;
+	onActivityUpdateV2: TechnosActivityHistoryV2Activity;
+	onActivityCompletedV2: TechnosActivityHistoryV2Activity;
+	onActivityError: TechnosActivityError;
+	onActivityRealTimeSpeed: TechnosActivityRealTimeSpeed;
 	onError: ErrorEvent;
 	onLog: LogEvent;
 }

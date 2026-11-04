@@ -12,8 +12,10 @@ import type { TechnosEventName } from "./types/emitter";
  * (`TechnosWareCore/src/NativeModules/index.ts:22-30`), para o mapeamento de estado do app Mormaii
  * (`usePairingData`) continuar igual.
  *
- * O módulo novo só emite `disconnect`, `connecting`, `connected` e `disconnectedBluetoothOff`;
- * `inDFU`, `unknown` e `disconnectOnActivity` existem por compatibilidade (a PoC não tem DFU nem atividade).
+ * O módulo novo emite `disconnect`, `connecting`, `connected` e `disconnectedBluetoothOff` e, com uma atividade
+ * iniciada pelo app em andamento e o relógio fora de alcance, `disconnectOnActivity` (fase 3; volta a `connected` na
+ * reconexão). `inDFU` e `unknown` existem por compatibilidade (a PoC não tem DFU). Por enquanto (fase 3 em andamento)
+ * o `disconnectOnActivity` não sai: a atividade iniciada pelo app ainda não está ligada.
  */
 export const deviceConnectStates = {
 	inDFU: -2,
@@ -32,7 +34,10 @@ export type DeviceConnectState = (typeof deviceConnectStates)[keyof typeof devic
  * Categorias aceitas por `TechnosCore.deletedSavedData`, iguais às do Core atual
  * (`TechnosWareCore/src/NativeModules/index.ts:33-43`), inclusive o nome `HEART_HERT`.
  *
- * Na PoC só `PEDOMETER` e `SLEEP` têm efeito; as outras categorias são aceitas e ignoradas pelo nativo.
+ * Têm efeito `PEDOMETER` e `SLEEP` (por dia), `HEART_HERT` e `STRESS` (pela hora local de `registered_at`) e
+ * `ACTIVITY` (pelo treino cujo início casa com `registered_at`, com 1 s de tolerância). As outras categorias, `SPO2`
+ * inclusive, são aceitas e ignoradas pelo nativo. Por enquanto (fase 3 em andamento) só `PEDOMETER` e `SLEEP` têm
+ * efeito: `HEART_HERT`, `STRESS` e `ACTIVITY` ainda são ignoradas, com um WARN no log (`Ignoring category N`).
  */
 export const deletedCategory = {
 	SLEEP: 0,
@@ -52,7 +57,7 @@ export type DeletedCategory = (typeof deletedCategory)[keyof typeof deletedCateg
 /**
  * Códigos de erro de `onError.code` e do `code` das Promises rejeitadas.
  *
- * Os catorze primeiros vêm do módulo de protocolo (`WatchErrorCodes.kt` do `technos-watch-protocol`); os cinco
+ * Os quinze primeiros vêm do módulo de protocolo (`WatchErrorCodes.kt` do `technos-watch-protocol`); os cinco
  * últimos nascem no nativo (`HostErrorCodes.kt` do `:bridge` do mesmo repositório): antes de a sessão ser chamada ou,
  * no caso de `CLASSIC_BOND_FAILED`, num pedido ao sistema que não é da sessão. Mudou uma das duas listas nativas, mude
  * aqui e em `docs/api-js.md`.
@@ -88,16 +93,28 @@ export const errorCodes = {
 	 * Hoje só o iOS detecta (`CBError.peerRemovedPairingInformation`; ADR 23 do `technos-watch-protocol`).
 	 */
 	PAIRING_REMOVED: "PAIRING_REMOVED",
-	/** O comando foi cancelado por desconexão, `forgetDevice`, reload do JS ou por um `pairDevice`/`startPairingAttempt` mais novo. */
+	/**
+	 * O comando foi cancelado por desconexão, `forgetDevice`, reload do JS ou por um `pairDevice`/`startPairingAttempt`
+	 * mais novo. Na fase 3, também o `startActivityByTypeV2` cujo prazo de 10 s venceu com o pedido ainda na fila (por
+	 * enquanto não acontece: a atividade iniciada pelo app ainda não está ligada).
+	 */
 	CANCELLED: "CANCELLED",
 	/** Reservado: a sessão não emite (um pareamento novo cancela o anterior com `CANCELLED`, ADR 13 do Repo 1). */
 	BUSY: "BUSY",
 	/**
 	 * O modelo conectado não tem o ajuste ou a ação pedida (na fase 2, todo ajuste, mensagem e interação no fitGPS e no
-	 * Life Ultra GPS, e o `resetDevice` neles). Sai antes de qualquer escrita no relógio; desconectado, vale o
+	 * Life Ultra GPS, e o `resetDevice` neles; na fase 3, a atividade iniciada pelo app neles e o
+	 * `checkIosBackgroundLocationPermission` no Android). Sai antes de qualquer escrita no relógio; desconectado, vale o
 	 * `NOT_READY`. No Core atual o equivalente é a rejeição `"-1"`/`"Not implemented"`.
 	 */
 	NOT_SUPPORTED: "NOT_SUPPORTED",
+	/**
+	 * Bateria do relógio baixa demais para iniciar a atividade (no Condor Reebok, abaixo de 11%, lida antes de qualquer
+	 * escrita; DP-119). O relógio não recebe nada, e o `startActivityByTypeV2` também emite `onActivityError` com
+	 * `errorCode` 2 (`TechnosActivityErrorCode.DEVICE_WITH_LOW_BATTERY`). Fase 3; por enquanto não sai, porque a
+	 * atividade iniciada pelo app ainda não está ligada.
+	 */
+	LOW_BATTERY: "LOW_BATTERY",
 	/** Permissão de Bluetooth não concedida (`BLUETOOTH_SCAN`/`BLUETOOTH_CONNECT`, ou localização abaixo do Android 12). */
 	PERMISSION_DENIED: "PERMISSION_DENIED",
 	/** O Bluetooth do telefone está desligado. */
@@ -155,6 +172,16 @@ export const technosEventNames: readonly TechnosEventName[] = [
 	"onTakeAPicture",
 	"onOpenCameraMode",
 	"onDeviceRequestedCameraMode",
+	"onHistoryHeartRate",
+	"onHistoryStress",
+	"onHistorySpo2",
+	"onHistoryActivityV2",
+	"onActivityStartedV2",
+	"onActivityStatusV2",
+	"onActivityUpdateV2",
+	"onActivityCompletedV2",
+	"onActivityError",
+	"onActivityRealTimeSpeed",
 	"onError",
 	"onLog",
 ];

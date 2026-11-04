@@ -1,7 +1,8 @@
 # CLAUDE.md
 
 Guia curto para agentes e para quem chega agora. O que a biblioteca faz e como começar está no
-[`README.md`](README.md); o desenho, em [`docs/arquitetura.md`](docs/arquitetura.md).
+[`README.md`](README.md); o desenho, em [`docs/arquitetura.md`](docs/arquitetura.md). Ao retomar o trabalho, comece
+pelo [`docs/roadmap.md`](docs/roadmap.md): estado das fases, decisões, perguntas em aberto e próximos passos.
 
 ## O que é e o que não é
 
@@ -228,3 +229,4 @@ com teste em `ios/Tests/`; o host inteiro é testado com as gravações reais do
 | arquivos do `src/` | [`src/README.md`](src/README.md) |
 | hipótese do protocolo confirmada ou derrubada no relógio | `docs/decisoes.md` e o `docs/protocolo-<família>.md` do Repo 1 (`sma`, `ido`, `crp`) |
 | o que falta validar com o relógio | `docs/pendencias.md` do Repo 1 |
+| fase concluída ou pausada, decisão de escopo, próximo passo, pergunta em aberto, plano novo | [`docs/roadmap.md`](docs/roadmap.md) e, para o plano, [`docs/planejamento/`](docs/planejamento/README.md) |

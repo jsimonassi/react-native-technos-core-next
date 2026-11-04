@@ -10,7 +10,7 @@ Par do `NativeCoreNextModule.kt`. É o único arquivo do Core iOS que conhece o 
   `NativeCoreNextSpecJSI`.
 - Registro: `codegenConfig.ios.modulesProvider` no `package.json` (`"NativeCoreNext": "RCTNativeCoreNext"`), que o
   codegen escreve no `RCTModuleProviders.mm` do app; `+moduleName` devolve `NativeCoreNext`.
-- Os 47 métodos do spec (23 da fase 1 e 24 da fase 2), cada um uma linha: embrulha resolve/reject numa
+- Os 56 métodos do spec (23 da fase 1, 24 da fase 2 e 9 da fase 3), cada um uma linha: embrulha resolve/reject numa
   `TCNPromiseCompletion` (Swift; todo valor resolvido passa pelo `FoundationConverter`, e o `isConnected` chega como
   `true`/`false`) e chama o seletor de mesmo nome do `TWPCoreBridge` (o `initSMASDK` chama `doInitSMASDKCompletion:`,
   porque o Kotlin/Native renomeia a família `init`; os seletores são os do `bridge/objc-interop/MinimalTurboModule.mm`
@@ -25,17 +25,23 @@ Par do `NativeCoreNextModule.kt`. É o único arquivo do Core iOS que conhece o 
   `onError` antes do reject), as rejeições `NOT_READY` e `NOT_SUPPORTED`, a máquina de estado da câmera e o
   `resetDevice` (`51 02`) moram no `CoreBridge`. O `shouldShowNotificationModal` do `manageNotifications` vai como
   chegou; o `CoreBridge` o ignora (DP-79 do `docs/desvios-de-producao.md`).
+- **Fase 3** (históricos de FC, estresse, SpO2 e treinos e a atividade iniciada pelo app; por enquanto os stubs da S0
+  no `CoreBridge`): os 4 `getHistory*` passam o `double` como está; as opções do `startActivityByTypeV2` e do
+  `stopActivityV2` vão como chegam (o wrapper JS manda `{}` no `stopActivityV2` sem opções); o
+  `checkIosBackgroundLocationPermission` resolve com o texto do `IosCoreHost.locationAuthorization()`.
 - **Argumento inteiro `nil`** (o `null`/`undefined` do JS no lugar do texto, do dicionário ou da lista, que o React
   Native 0.81 entrega como `nil`): o `CNRejectNil` rejeita na hora com `INVALID_ARGUMENT` (`"<argumento> must not be
   null"`), sem chamar o `CoreBridge` e sem `onError`, e loga uma linha INFO; no `deletedSavedData` (`void`), só loga.
   É a única conferência do shim, e existe porque o framework não recebe `nil`: o `CoreBridge` tem parâmetros não nulos
   e o `nil` vira um `kotlin.NullPointerException` não capturado, que encerra o processo (conferido no simulador). Vale
-  para os 19 métodos com argumento de objeto, inclusive `pairDevice`, `startPairingAttempt` e `deletedSavedData` da
-  fase 1. Desvio de produção (o Core iOS seguia com o `nil`): DP-100; o Android rejeita sem `code` (DP-99).
+  para os 21 métodos com argumento de objeto, inclusive `pairDevice`, `startPairingAttempt` e `deletedSavedData` da
+  fase 1 e as opções do `startActivityByTypeV2` e do `stopActivityV2` da fase 3. Desvio de produção (o Core iOS seguia com o `nil`): DP-100; o Android rejeita sem `code` (DP-99).
 - É o `TWPCoreEventSink`: `canEmit` = `_eventEmitterCallback` instalado; `emitName:payload:` converte com
-  `TWPFoundationConverter` e chama o `emitOnX:` do nome, um ramo para cada um dos 17 eventos do spec (da fase 2:
+  `TWPFoundationConverter` e chama o `emitOnX:` do nome, um ramo para cada um dos 27 eventos do spec (da fase 2:
   `onFindPhone`, `onTakeAPicture`, `onOpenCameraMode` e `onDeviceRequestedCameraMode`, que o `CoreBridge` emite sem
-  fila). Um nome sem ramo vai só para o `NSLog`. O `emitOnX:` gerado chama um `AsyncEventEmitter`, que agenda a
+  fila; da fase 3: `onHistoryHeartRate`, `onHistoryStress`, `onHistorySpo2`, `onHistoryActivityV2`,
+  `onActivityStartedV2`, `onActivityStatusV2`, `onActivityUpdateV2`, `onActivityCompletedV2`, `onActivityError` e
+  `onActivityRealTimeSpeed`). Um nome sem ramo vai só para o `NSLog`. O `emitOnX:` gerado chama um `AsyncEventEmitter`, que agenda a
   entrega na thread JS: emitir da thread da sessão é seguro, como no Android.
 - Ciclo de vida: `attachSink:` na primeira chamada de um método JS (`coreBridgeFor:`; `bridge` já é propriedade do
   `RCTBridgeModule`) e de novo sempre que o sink do `CoreBridge` estiver em outra instância, para os eventos irem à
@@ -65,8 +71,9 @@ dos payloads são exercitados pelo `CoreBridgeReplayTests` e pelo `Phase2HostTes
 os mesmos `NSDictionary` que o shim repassa, com `NSNumber`, `CFBoolean` e `NSNull`). O que o compilador não garante
 no shim, o `TurboModuleSourceTests` confere lendo este arquivo e o spec: um método do protocolo sem implementação é só
 um aviso (e um crash quando o JS o chama), um evento sem ramo no `emitName:` cai no `NSLog` e um argumento `nil` sem o
-`CNRejectNil` derruba o app; o teste exige os 47 métodos, cada um com uma chamada ao `CoreBridge`, os 22 argumentos de
-objeto conferidos antes dela e os 17 ramos, cada um com o `emitOnX:` do mesmo nome. A prova de
+`CNRejectNil` derruba o app; o teste exige os 56 métodos, cada um com uma chamada ao `CoreBridge`, os 24 argumentos de
+objeto conferidos antes dela e os 27 ramos, cada um com o `emitOnX:` do mesmo nome, e confere à parte os 9 métodos e
+os 10 eventos da fase 3. A prova de
 que o módulo registra e responde é o app de exemplo no simulador
 ([`ios/README.md`](../../README.md#app-de-exemplo-no-simulador)); os dois builds do exemplo (simulador Debug e iPhone
 Release) compilam este arquivo contra o `NativeCoreNextSpec.h` gerado.

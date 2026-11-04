@@ -18,6 +18,7 @@ import br.com.grupotechnos.watch.protocol.log.LogLevel
 import java.io.File
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * O [CoreHost] do Android: o que o `CoreBridge` (Repo 1, `:bridge`) pede à plataforma, sobre as peças de `ble/`,
@@ -32,6 +33,10 @@ import java.time.format.DateTimeFormatter
  * main, o [PairingPrefs] fica sobre `SharedPreferences`, o [SyncForegroundService] trava o próprio estado e o
  * [RingLogger] e o [FrameRecorder] também), então os métodos podem vir de qualquer thread, como o KDoc do [CoreHost]
  * exige.
+ *
+ * Fase 3, ainda em stub (S0h): o trabalho de atividade só vai ao log (o motivo atividade do [SyncForegroundService]
+ * chega numa fatia seguinte), as preferências ficam só em memória (o `store/PreferencesStore` sobre
+ * `SharedPreferences` também) e a autorização de localização é sempre `null`, porque o método é só do iOS.
  */
 internal class AndroidCoreHost(
 	private val appContext: Context,
@@ -128,6 +133,38 @@ internal class AndroidCoreHost(
 	override fun removeClassicBond(address: String) {
 		classicBonder.remove(address)
 	}
+
+	// region Fase 3 (stub)
+
+	/**
+	 * Preferências do `CoreBridge` (hoje só `userProfile`), por enquanto só em memória: somem com o processo. Um
+	 * `ConcurrentHashMap` porque o `CoreBridge` chama de qualquer thread; ele não aceita valor nulo, então o `null`
+	 * apaga a chave.
+	 */
+	private val preferences = ConcurrentHashMap<String, String>()
+
+	/** Stub: só o log. O `SyncForegroundService` com o motivo atividade ainda não existe. */
+	override fun startActivityWork() {
+		logger.log(LogLevel.INFO, "AndroidCoreHost/startActivityWork", "Activity work requested; no foreground service yet (stub)")
+	}
+
+	/** Stub: só o log, par do [startActivityWork]. */
+	override fun stopActivityWork() {
+		logger.log(LogLevel.INFO, "AndroidCoreHost/stopActivityWork", "Activity work finished (stub)")
+	}
+
+	/** O valor guardado em memória para [key], ou `null`. */
+	override fun loadPreference(key: String): String? = preferences[key]
+
+	/** Guarda [value] em memória em [key]; `null` apaga. */
+	override fun savePreference(key: String, value: String?) {
+		if (value == null) preferences.remove(key) else preferences[key] = value
+	}
+
+	/** Sempre `null`: o `checkIosBackgroundLocationPermission` é só do iOS, e o `CoreBridge` rejeita `NOT_SUPPORTED`. */
+	override fun locationAuthorization(): String? = null
+
+	// endregion
 
 	companion object {
 		/**

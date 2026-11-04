@@ -21,7 +21,11 @@ câmera também moram lá.
 | `specs/NativeCoreNext.ts` | Spec do TurboModule (codegen). Contrato. | lead |
 | `types/events.ts` | Formato de cada evento. Contrato com o `EventMapper` do `:bridge` (Repo 1). | lead |
 | `types/emitter.ts` | `TechnosEventEmitter`, `TechnosEventMap` (payload por nome de evento). | JS |
-| `types/compat.ts` | Apelidos com os nomes de tipo do Core atual (`TechnosPedometerHistory`, `TechnosFindPhoneStatus`...). | JS |
+| `types/compat.ts` | Apelidos com os nomes de tipo do Core atual (`TechnosPedometerHistory`, `TechnosFindPhoneStatus`, `TechnosHeartRateHistory`...). | JS |
+| `types/activity.ts` | Fase 3: cópias literais dos tipos de atividade do Core (`TechnosActivityHistoryV2Activity` com todos os opcionais, `TechnosActivityByTypeStartV2`, `TechnosActivityByTypeStop`, `TechnosActivityError`...). Contrato com o `WorkoutPayloadMapper` do `:bridge` (Repo 1). | lead |
+| `activityEnums.ts` | Fase 3: enums de valor do Core (`TechnosActivityV2Status`, `TechnosActivityOrigin`, `TechnosActivityErrorCode`, `PlanType`, `ActionType`), exportados como valor na raiz e no mock; `TechnosExerciseGoalTypes` só como tipo. | JS |
+| `activityTypes.ts` | Fase 3: `TechnosCore.activityTypes`, cópia literal da tabela do Core `v4.3.57`, sem `as const`. | JS |
+| `components/` | Fase 3: os componentes do Core que o app Condor importa, por enquanto reservas em JS (stubs) com as props literais do Core: `TechnosNativeChronometer` (texto `00:00:00` fixo, com o tamanho, a cor e o alinhamento das props), `TechnosNativeActionTimer` (`00:00`), `TechnosNativeMap` (`View` vazia) e o enum `TechnosMapStyles` (`mapStyles.ts`); `timerText.ts` tem a tabela de tamanhos dos cronômetros nativos. Exportados como valor na raiz e no mock, com os tipos `TechnosNativeChronometerProps` e `TechnosNativeMapProps`. | JS |
 | `types/watchSettings.ts` | Entradas da fase 2 com os nomes e campos do Core (`TechnosUserInfoSet`, `TechnosAlarmSet` com `enable`, `TechnosWalkReminderUpdate` com `onOff`, `TechnosNotDisturbSet` com `alwaysOn`, os `repeat`...). Contrato com o `SettingsMapper` do `:bridge` (Repo 1). | lead |
 | `constants.ts` | `deviceConnectStates`, `deletedCategory`, `errorCodes`, `logLevels`, `technosEventNames`. | JS |
 | `utils/` | `getNativeEventData`, `requestNativeEventData`, `getErrorCode`, agrupamento do `deletedSavedData` e `observed` (`utils/promise.ts`: marca a Promise como tratada sem engolir a rejeição; `docs/api-js.md`, regra 3). | JS |
@@ -31,19 +35,30 @@ câmera também moram lá.
 ## Dependências
 
 - Depende de `react-native` (peer, `>= 0.81`) e do módulo nativo registrado como `NativeCoreNext`.
-- `constants.ts`, `types/` e `utils/` não importam o módulo nativo: o mock e os testes usam esses arquivos sem ele.
+- `constants.ts`, `activityEnums.ts`, `activityTypes.ts`, `components/`, `types/` e `utils/` não importam o módulo
+  nativo: o mock e os testes usam esses arquivos sem ele. `components/` é o único lugar que importa `react` (peer do
+  app; no typecheck do exemplo, pelo `paths` do `example/tsconfig.json`).
 - Só `index.ts` importa `specs/NativeCoreNext.ts`, que chama `TurboModuleRegistry.getEnforcing` no import.
 
 ## Invariantes
 
 - Os valores de `deviceConnectStates` e `deletedCategory` são os do Core atual e não mudam.
-- `errorCodes` acompanha `WatchErrorCodes.kt` (`:protocol`, catorze códigos, com o `NOT_SUPPORTED` da fase 2) e
-  `HostErrorCodes.kt` (`:bridge`, cinco, com o `CLASSIC_BOND_FAILED` do Condor Reebok), os dois no Repo 1.
+- `errorCodes` acompanha `WatchErrorCodes.kt` (`:protocol`, quinze códigos, com o `NOT_SUPPORTED` da fase 2 e o
+  `LOW_BATTERY` da fase 3) e `HostErrorCodes.kt` (`:bridge`, cinco, com o `CLASSIC_BOND_FAILED` do Condor Reebok), os
+  dois no Repo 1.
 - Os 23 métodos da fase 2 e o `resetDevice` devolvem `observed(NativeCoreNext.x(...))`: a mesma Promise, com um
   `.catch` vazio pendurado, para uma chamada sem `await` (como o app Condor faz com `setUserInfo`, `syncWeather`,
   `vibrateDevice` e a câmera) não gerar "Possible unhandled promise rejection". Os métodos da fase 1 não passam por ele.
   Método novo da fase 2 entra no spec, no wrapper com `observed`, no mock (`TechnosCore` e `promiseMethods`) e no
   `__tests__/watchSettings.test.ts`.
+- Os 9 métodos da fase 3 também passam por `observed` (o app Condor chama todos sem `await`), e o `stopActivityV2`
+  sem argumento manda `{}` ao nativo; testes em `__tests__/activity.test.ts`. `types/activity.ts`, `activityEnums.ts` e
+  `activityTypes.ts` são cópias literais do Core `v4.3.57`: não renomeie, não torne obrigatório um opcional e não mude
+  um valor.
+- Os componentes de `components/` existem como valor na raiz e no mock porque o app Condor faz `styled(X)` no nível do
+  módulo (com `X` indefinido, o styled-components lança e o app nem abre); as props são cópias literais das do Core.
+  Por enquanto não falam com o nativo: o cronômetro que conta pelo `onActivityUpdateV2` e o mapa de verdade vêm depois
+  (F3-D25 da especificação da fase 3); testes em `__tests__/components.test.tsx`.
 - Os tipos de `types/watchSettings.ts` copiam os do Core campo a campo (com `reminder?` a mais no ciclo, que o app
   Condor já manda; DP-77 do `docs/desvios-de-producao.md`); não renomeie nem torne obrigatório um campo: o app Condor
   troca de pacote sem mudar os tipos.
@@ -58,4 +73,4 @@ Não há `node_modules` na raiz; tudo usa o do exemplo.
 
 - `example/node_modules/.bin/tsc --noEmit -p tsconfig.json` (na raiz) checa `src/`.
 - `cd example && npm test` roda os testes de `src/` (`__tests__/wrapper.test.ts`, `events.test.ts`,
-  `watchSettings.test.ts`) e do exemplo.
+  `watchSettings.test.ts`, `activity.test.ts`, `components.test.tsx`) e do exemplo.

@@ -16,9 +16,10 @@ ios/
 
 ## O que existe
 
-- **Shim do TurboModule** (`CoreNext/turbomodule/RCTNativeCoreNext.mm`): os 47 métodos do spec (23 da fase 1 e, desde
-  2026-11-02, os 24 de ajustes, mensagens e interações da fase 2 do Condor Reebok), cada um uma chamada ao
-  `TWPCoreBridge`, e o `TWPCoreEventSink` (os 17 eventos). Registrado pelo `codegenConfig.ios.modulesProvider` do
+- **Shim do TurboModule** (`CoreNext/turbomodule/RCTNativeCoreNext.mm`): os 56 métodos do spec (23 da fase 1, desde
+  2026-11-02 os 24 de ajustes, mensagens e interações da fase 2 do Condor Reebok e, desde 2026-11-03, os 9 de
+  históricos e atividade da fase 3, ainda sobre os stubs do `CoreBridge`), cada um uma chamada ao `TWPCoreBridge`, e o
+  `TWPCoreEventSink` (os 27 eventos). Registrado pelo `codegenConfig.ios.modulesProvider` do
   `package.json` (o codegen escreve `"NativeCoreNext": "RCTNativeCoreNext"` no `RCTModuleProviders.mm` do app).
 - **Host Swift** (`CoreNext/`): `CoreGraph` (um por processo), `IosCoreHost` (o `CoreHost`; o vínculo Bluetooth
   clássico do Condor Reebok responde "não suportado"), `CentralTransport` (o `Transport` sobre o CoreBluetooth),

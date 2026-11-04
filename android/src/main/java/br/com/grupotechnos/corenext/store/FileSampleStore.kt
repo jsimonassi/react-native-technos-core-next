@@ -1,8 +1,10 @@
 package br.com.grupotechnos.corenext.store
 
 import br.com.grupotechnos.watch.protocol.domain.DataKind
+import br.com.grupotechnos.watch.protocol.domain.MeasurementSample
 import br.com.grupotechnos.watch.protocol.domain.SleepSession
 import br.com.grupotechnos.watch.protocol.domain.StepsSample
+import br.com.grupotechnos.watch.protocol.domain.WorkoutRecord
 import br.com.grupotechnos.watch.protocol.log.LogLevel
 import br.com.grupotechnos.watch.protocol.log.WatchLogger
 import br.com.grupotechnos.watch.protocol.session.SampleStore
@@ -24,6 +26,10 @@ import java.nio.file.StandardCopyOption
  *
  * Chamado na thread da sessão (contrato do [SampleStore]); IO síncrono é permitido. Arquivo ilegível vira lista
  * vazia com log `WARN` em vez de exceção, para um arquivo corrompido não derrubar a sessão.
+ *
+ * Medições (FC e estresse) e treinos da fase 3 ainda em stub (S0h): carregam vazio e não gravam nada, só um `DEBUG`
+ * no log; os arquivos `measurements-*.json` e `workouts.json` chegam numa fatia seguinte. As chaves confirmadas dos
+ * tipos novos já vão para `confirmed-<tipo>.json`, como as dos outros.
  */
 class FileSampleStore(
 	private val directory: File,
@@ -38,6 +44,28 @@ class FileSampleStore(
 	override fun loadSleep(): List<SleepSession> = read(SLEEP_FILE) { SampleJsonCodec.decodeSleep(it) }
 
 	override fun saveSleep(sessions: List<SleepSession>) = write(SLEEP_FILE, SampleJsonCodec.encodeSleep(sessions))
+
+	/** Stub: sempre vazio, com `DEBUG` no log. */
+	override fun loadMeasurements(kind: DataKind): List<MeasurementSample> {
+		log(LogLevel.DEBUG, "loadMeasurements", "kind=$kind not persisted yet (stub): empty")
+		return emptyList()
+	}
+
+	/** Stub: não grava, só o `DEBUG` com o tamanho. */
+	override fun saveMeasurements(kind: DataKind, samples: List<MeasurementSample>) {
+		log(LogLevel.DEBUG, "saveMeasurements", "kind=$kind not persisted yet (stub): dropped ${samples.size} samples")
+	}
+
+	/** Stub: sempre vazio, com `DEBUG` no log. */
+	override fun loadWorkouts(): List<WorkoutRecord> {
+		log(LogLevel.DEBUG, "loadWorkouts", "Workouts not persisted yet (stub): empty")
+		return emptyList()
+	}
+
+	/** Stub: não grava, só o `DEBUG` com o tamanho. */
+	override fun saveWorkouts(records: List<WorkoutRecord>) {
+		log(LogLevel.DEBUG, "saveWorkouts", "Workouts not persisted yet (stub): dropped ${records.size} records")
+	}
 
 	override fun loadConfirmedDays(kind: DataKind): List<String> =
 		read(confirmedFile(kind)) { SampleJsonCodec.decodeDayKeys(it) }

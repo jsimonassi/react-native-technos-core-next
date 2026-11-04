@@ -35,17 +35,17 @@ enum TurboModuleSource {
 
 	/// Os nomes que o `emitName:payload:` do shim despacha (`isEqualToString:@"onX"`).
 	static func dispatchedEvents() throws -> [String] {
-		matches(#"isEqualToString:@"(on[A-Za-z]+)""#, in: try shim()).map { $0[0] }
+		matches(#"isEqualToString:@"(on[A-Za-z0-9]+)""#, in: try shim()).map { $0[0] }
 	}
 
 	/// Pares (nome comparado, emissor chamado) de cada ramo do despacho: `onX` → `emitOnX:`.
 	static func dispatchBranches() throws -> [(name: String, emitter: String)] {
-		matches(#"isEqualToString:@"on([A-Za-z]+)"\]\) \{\s*\[self emitOn([A-Za-z]+):value\];"#, in: try shim()).map { ($0[0], $0[1]) }
+		matches(#"isEqualToString:@"on([A-Za-z0-9]+)"\]\) \{\s*\[self emitOn([A-Za-z0-9]+):value\];"#, in: try shim()).map { ($0[0], $0[1]) }
 	}
 
 	/// Os eventos do spec (`readonly onX: CodegenTypes.EventEmitter<...>`).
 	static func specEvents() throws -> [String] {
-		matches(#"readonly (on[A-Za-z]+): CodegenTypes\.EventEmitter"#, in: try spec()).map { $0[0] }
+		matches(#"readonly (on[A-Za-z0-9]+): CodegenTypes\.EventEmitter"#, in: try spec()).map { $0[0] }
 	}
 
 	/// Os métodos do spec (uma linha por método, com um tab: `nome(argumentos): Retorno;`).
@@ -110,7 +110,7 @@ final class TurboModuleSourceTests: XCTestCase {
 	func testTheShimImplementsEverySpecMethodAndEachCallsTheCoreBridge() throws {
 		let spec = try TurboModuleSource.specMethods()
 		let shim = try TurboModuleSource.shimMethods()
-		XCTAssertEqual(spec.count, 47, "23 from phase 1 and 24 from phase 2: \(spec)")
+		XCTAssertEqual(spec.count, 56, "23 from phase 1, 24 from phase 2 and 9 from phase 3: \(spec)")
 		XCTAssertEqual(Set(spec).count, spec.count, "duplicated method in the spec")
 		XCTAssertEqual(shim.sorted(), spec.sorted())
 		let calls = try TurboModuleSource.shim().components(separatedBy: "[[self coreBridgeFor:_cmd] ").count - 1
@@ -121,7 +121,7 @@ final class TurboModuleSourceTests: XCTestCase {
 	/// `kotlin.NullPointerException` (DP-100): todo argumento de objeto passa pelo `CNRejectNil` antes do `CoreBridge`.
 	func testEveryObjectArgumentIsCheckedForNilBeforeTheCoreBridge() throws {
 		let methods = try TurboModuleSource.shimMethodImplementations()
-		XCTAssertEqual(methods.count, 47)
+		XCTAssertEqual(methods.count, 56)
 		var checked = 0
 		for method in methods {
 			let call = method.body.range(of: "[[self coreBridgeFor:_cmd] ")
@@ -136,12 +136,12 @@ final class TurboModuleSourceTests: XCTestCase {
 				checked += 1
 			}
 		}
-		XCTAssertEqual(checked, 22, "2 strings of pairDevice, startPairingAttempt and setHeartRateAutomaticCheck, 16 others")
+		XCTAssertEqual(checked, 24, "2 strings of pairDevice, startPairingAttempt and setHeartRateAutomaticCheck, 16 from phase 1 and 2, 2 options from phase 3")
 	}
 
 	func testEverySpecEventHasItsBranchInEmitName() throws {
 		let spec = try TurboModuleSource.specEvents()
-		XCTAssertEqual(spec.count, 17, "\(spec)")
+		XCTAssertEqual(spec.count, 27, "13 from phase 1, 4 from phase 2 and 10 from phase 3: \(spec)")
 		XCTAssertEqual(try TurboModuleSource.dispatchedEvents().sorted(), spec.sorted())
 		let branches = try TurboModuleSource.dispatchBranches()
 		XCTAssertEqual(branches.count, spec.count, "each branch calls one emitOnX:")
@@ -151,5 +151,22 @@ final class TurboModuleSourceTests: XCTestCase {
 		for name in ["onFindPhone", "onTakeAPicture", "onOpenCameraMode", "onDeviceRequestedCameraMode"] {
 			XCTAssertTrue(spec.contains(name), name)
 		}
+	}
+
+	/// Os 10 eventos e os 9 métodos da fase 3 (S0h): sem o ramo, o `onActivityError` do stub do início se perderia no
+	/// `NSLog`, e o JS esperaria o `onActivityStartedV2` para sempre.
+	func testThePhase3EventsAndMethodsAreInTheShim() throws {
+		let events = [
+			"onHistoryHeartRate", "onHistoryStress", "onHistorySpo2", "onHistoryActivityV2", "onActivityStartedV2",
+			"onActivityStatusV2", "onActivityUpdateV2", "onActivityCompletedV2", "onActivityError", "onActivityRealTimeSpeed",
+		]
+		let dispatched = Set(try TurboModuleSource.dispatchedEvents())
+		XCTAssertEqual(events.filter { !dispatched.contains($0) }, [], "phase 3 events without a branch in emitName:payload:")
+		let methods = [
+			"getHistoryHeartRate", "getHistoryStress", "getHistorySpO2", "getHistoryActivityV2", "startActivityByTypeV2",
+			"pauseActivityV2", "resumeActivityV2", "stopActivityV2", "checkIosBackgroundLocationPermission",
+		]
+		let shim = Set(try TurboModuleSource.shimMethods())
+		XCTAssertEqual(methods.filter { !shim.contains($0) }, [], "phase 3 methods missing in the shim")
 	}
 }

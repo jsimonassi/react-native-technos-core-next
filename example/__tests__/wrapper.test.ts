@@ -127,8 +127,8 @@ describe("TechnosCore (repasse ao nativo)", () => {
 	it("expõe o código do vínculo Bluetooth clássico, que só sai em onError", () => {
 		expect(errorCodes.CLASSIC_BOND_FAILED).toBe("CLASSIC_BOND_FAILED");
 		expect(TechnosCore.errorCodes.CLASSIC_BOND_FAILED).toBe("CLASSIC_BOND_FAILED");
-		// Catorze códigos da sessão e cinco do host.
-		expect(Object.keys(errorCodes)).toHaveLength(19);
+		// Quinze códigos da sessão (com o LOW_BATTERY da fase 3) e cinco do host.
+		expect(Object.keys(errorCodes)).toHaveLength(20);
 	});
 
 	it("expõe NOT_SUPPORTED, o código dos ajustes que o modelo conectado não tem", () => {
@@ -136,7 +136,7 @@ describe("TechnosCore (repasse ao nativo)", () => {
 		expect(TechnosCore.errorCodes.NOT_SUPPORTED).toBe("NOT_SUPPORTED");
 	});
 
-	it("as chaves de TechnosEvents batem com technosEventNames, com os quatro eventos da fase 2", () => {
+	it("as chaves de TechnosEvents batem com technosEventNames, com os eventos das fases 2 e 3", () => {
 		expect(Object.keys(TechnosEvents).sort()).toEqual([...technosEventNames].sort());
 		expect(new Set(technosEventNames).size).toBe(technosEventNames.length);
 		expect(technosEventNames).toEqual(
@@ -147,7 +147,8 @@ describe("TechnosCore (repasse ao nativo)", () => {
 				"onDeviceRequestedCameraMode",
 			]),
 		);
-		expect(technosEventNames).toHaveLength(17);
+		// 17 das fases 1 e 2 e 10 da fase 3.
+		expect(technosEventNames).toHaveLength(27);
 	});
 
 	it("o mock implementa tudo o que o wrapper exporta", () => {

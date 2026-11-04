@@ -19,6 +19,13 @@ type NativeDictionary = CodegenTypes.UnsafeObject;
  * `src/NativeModules/specs/NativeCore.ts`), todos com `Promise<void>`, inclusive os que lá são `void`. Só o Condor
  * Reebok os executa; o fitGPS e o Life Ultra GPS rejeitam `NOT_SUPPORTED`. Os formatos dos dicionários estão em
  * `src/types/watchSettings.ts`.
+ *
+ * Os históricos de frequência cardíaca, estresse, SpO2 e treinos e a atividade iniciada pelo app (fase 3) também têm
+ * os nomes do Core, com `Promise<void>` no lugar do `void` de lá, e o `checkIosBackgroundLocationPermission` mantém o
+ * `Promise<string>`. Formatos em `src/types/events.ts` e `src/types/activity.ts`; regras no `CoreBridge` do Repo 1.
+ * Por enquanto (fase 3 em andamento) eles são a versão de reserva do `CoreBridge`: os históricos de FC, estresse e
+ * treinos emitem a lista vazia, o `startActivityByTypeV2` emite `onActivityError` -1 e resolve, `pause`, `resume` e
+ * `stop` resolvem sem tráfego e o iOS responde `"denied"` ao `checkIosBackgroundLocationPermission`.
  */
 export interface Spec extends TurboModule {
 	/** Cria o grafo nativo (sessão, transporte, logger). Idempotente. */
@@ -57,12 +64,20 @@ export interface Spec extends TurboModule {
 	/** Lê os passos recentes do relógio e emite `onPedometer` com o total de hoje. */
 	refreshSteps(): Promise<void>;
 
-	/** Lê o histórico do relógio (passos e sono) e grava localmente. Emite `onSyncStarted/Progress/Finished`. */
+	/** Lê o histórico do relógio e grava localmente. Emite `onSyncStarted/Progress/Finished`. */
 	syncDataHistory(): Promise<void>;
 	/** Emite `onHistoryPedometer` a partir do histórico local. Não fala com o relógio. */
 	getHistoryPedometer(daysBefore: number): Promise<void>;
 	/** Emite `onHistorySleep` a partir do histórico local, ou `onError` com `NO_DATA`. */
 	getHistorySleep(): Promise<void>;
+	/** Emite `onHistoryHeartRate` (horas não confirmadas, mesmo vazio) e resolve. `daysBefore` só vai ao log. */
+	getHistoryHeartRate(daysBefore: number): Promise<void>;
+	/** Emite `onHistoryStress` (horas não confirmadas, mesmo vazio) e resolve. `daysBefore` só vai ao log. */
+	getHistoryStress(daysBefore: number): Promise<void>;
+	/** Emite `onHistorySpo2` sempre com a lista vazia e resolve. */
+	getHistorySpO2(daysBefore: number): Promise<void>;
+	/** Emite `onHistoryActivityV2` (treinos não confirmados, mesmo vazio) e resolve. */
+	getHistoryActivityV2(): Promise<void>;
 	/** Marca registros como enviados ao backend (mesmo formato do Core atual). */
 	deletedSavedData(filteredArrayData: NativeDictionary[], category: number): void;
 
@@ -113,6 +128,23 @@ export interface Spec extends TurboModule {
 	/** Fecha a câmera no relógio. Desconectado, só zera o estado e resolve. */
 	closeCameraMode(): Promise<void>;
 
+	/**
+	 * Inicia uma atividade no relógio (`TechnosActivityByTypeStartV2`). Resolve depois das escritas; o início confirmado
+	 * sai em `onActivityStartedV2`, e as recusas em `onActivityError`.
+	 */
+	startActivityByTypeV2(options: NativeDictionary): Promise<void>;
+	/** Pausa a atividade; emite `onActivityStatusV2` (status 4) antes do resolve. Sem atividade, resolve sem tráfego. */
+	pauseActivityV2(): Promise<void>;
+	/** Retoma a atividade; emite `onActivityStatusV2` (status 3) antes do resolve. Sem atividade, resolve sem tráfego. */
+	resumeActivityV2(): Promise<void>;
+	/**
+	 * Encerra a atividade (`TechnosActivityByTypeStop`; o wrapper manda `{}` quando o app não passa nada). Emite
+	 * `onActivityCompletedV2` antes do resolve; com `forceStop: true`, resolve sem evento.
+	 */
+	stopActivityV2(options: NativeDictionary): Promise<void>;
+	/** `"granted"` (localização sempre) ou `"denied"` no iOS; no Android rejeita `NOT_SUPPORTED`. */
+	checkIosBackgroundLocationPermission(): Promise<string>;
+
 	/** Últimas entradas do log em memória, da mais nova para a mais antiga. */
 	getLogs(limit: number): Promise<NativeDictionary[]>;
 	/** Grava o log e a gravação de frames em arquivo e devolve o caminho do arquivo `.jsonl`. */
@@ -152,6 +184,26 @@ export interface Spec extends TurboModule {
 	readonly onOpenCameraMode: CodegenTypes.EventEmitter<NativeDictionary>;
 	/** Disparo da câmera no relógio com o modo câmera fechado (`DeviceRequestedCameraModeEvent`, vazio); sem fila. */
 	readonly onDeviceRequestedCameraMode: CodegenTypes.EventEmitter<NativeDictionary>;
+	/** Horas de FC não confirmadas (`HistoryHeartRateEvent`), resposta de `getHistoryHeartRate`; com fila. */
+	readonly onHistoryHeartRate: CodegenTypes.EventEmitter<NativeDictionary>;
+	/** Horas de estresse não confirmadas (`HistoryStressEvent`), resposta de `getHistoryStress`; com fila. */
+	readonly onHistoryStress: CodegenTypes.EventEmitter<NativeDictionary>;
+	/** SpO2 (`HistorySpo2Event`), sempre `{ historyspo2: [] }`, resposta de `getHistorySpO2`; com fila. */
+	readonly onHistorySpo2: CodegenTypes.EventEmitter<NativeDictionary>;
+	/** Treinos não confirmados (`TechnosActivityHistoryV2`), resposta de `getHistoryActivityV2`; com fila. */
+	readonly onHistoryActivityV2: CodegenTypes.EventEmitter<NativeDictionary>;
+	/** O relógio confirmou o início da atividade (`TechnosActivityHistoryV2Activity`, status 2); sem fila. */
+	readonly onActivityStartedV2: CodegenTypes.EventEmitter<NativeDictionary>;
+	/** Pausa (status 4) ou retomada (status 3), pelo app ou no relógio (`TechnosActivityHistoryV2Activity`); sem fila. */
+	readonly onActivityStatusV2: CodegenTypes.EventEmitter<NativeDictionary>;
+	/** Atualização a cada 1 s da atividade em andamento (`TechnosActivityHistoryV2Activity`, status 2 ou 3); sem fila. */
+	readonly onActivityUpdateV2: CodegenTypes.EventEmitter<NativeDictionary>;
+	/** Fim da atividade (`TechnosActivityHistoryV2Activity`, status 0); guardado enquanto o JS não existe. */
+	readonly onActivityCompletedV2: CodegenTypes.EventEmitter<NativeDictionary>;
+	/** Falha ou recusa da atividade (`TechnosActivityError`, `errorCode` -1, 1 ou 2); sem fila. */
+	readonly onActivityError: CodegenTypes.EventEmitter<NativeDictionary>;
+	/** Velocidade em tempo real (`TechnosActivityRealTimeSpeed`). Declarado, mas nunca emitido (sem GPS). */
+	readonly onActivityRealTimeSpeed: CodegenTypes.EventEmitter<NativeDictionary>;
 	/** Toda falha de comando e erros espontâneos (`ErrorEvent`, com `code`, `message` e `method`). */
 	readonly onError: CodegenTypes.EventEmitter<NativeDictionary>;
 	/** Cada entrada do log nativo (`LogEvent`); não é guardada enquanto o JS não existe. */

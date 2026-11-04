@@ -1,12 +1,12 @@
 // TurboModule `NativeCoreNext` no iOS: uma casca sobre o `TWPCoreBridge` do Repo 1, par do `NativeCoreNextModule.kt`.
 //
-// Cada método do spec (`src/specs/NativeCoreNext.ts`, 47 métodos: os 23 da fase 1 e os 24 de ajustes, mensagens e
-// interações da fase 2) embrulha o par resolve/reject do React Native numa `TCNPromiseCompletion` (Swift,
-// `CoreNext.swift`: todo valor resolvido passa pelo `FoundationConverter`, e o `isConnected` chega ao JS como
-// `true`/`false`) e chama o seletor de mesmo nome do `TWPCoreBridge` do processo. O módulo é o `TWPCoreEventSink`:
-// converte cada payload com o `TWPFoundationConverter` e chama o `emitOnX:` gerado pelo codegen no
-// `NativeCoreNextSpecBase` (17 eventos). Nenhuma regra mora aqui; a forma é a do
-// `bridge/objc-interop/MinimalTurboModule.mm` do Repo 1, que o `./gradlew check` de lá compila.
+// Cada método do spec (`src/specs/NativeCoreNext.ts`, 56 métodos: os 23 da fase 1, os 24 de ajustes, mensagens e
+// interações da fase 2 e os 9 de históricos e atividade da fase 3) embrulha o par resolve/reject do React Native numa
+// `TCNPromiseCompletion` (Swift, `CoreNext.swift`: todo valor resolvido passa pelo `FoundationConverter`, e o
+// `isConnected` chega ao JS como `true`/`false`) e chama o seletor de mesmo nome do `TWPCoreBridge` do processo. O
+// módulo é o `TWPCoreEventSink`: converte cada payload com o `TWPFoundationConverter` e chama o `emitOnX:` gerado pelo
+// codegen no `NativeCoreNextSpecBase` (27 eventos: 13 da fase 1, 4 da fase 2 e 10 da fase 3). Nenhuma regra mora aqui;
+// a forma é a do `bridge/objc-interop/MinimalTurboModule.mm` do Repo 1, que o `./gradlew check` de lá compila.
 //
 // Sem header público de propósito: com `DEFINES_MODULE`, um `.h` entraria no umbrella do módulo `TechnosCoreNext`, e o
 // `import TechnosCoreNext` do Swift do app tentaria compilar os headers C++ do codegen.
@@ -223,6 +223,26 @@ static NSInteger sSinkMovesToLog = 20;
 		[self emitOnOpenCameraMode:value];
 	} else if ([name isEqualToString:@"onDeviceRequestedCameraMode"]) {
 		[self emitOnDeviceRequestedCameraMode:value];
+	} else if ([name isEqualToString:@"onHistoryHeartRate"]) {
+		[self emitOnHistoryHeartRate:value];
+	} else if ([name isEqualToString:@"onHistoryStress"]) {
+		[self emitOnHistoryStress:value];
+	} else if ([name isEqualToString:@"onHistorySpo2"]) {
+		[self emitOnHistorySpo2:value];
+	} else if ([name isEqualToString:@"onHistoryActivityV2"]) {
+		[self emitOnHistoryActivityV2:value];
+	} else if ([name isEqualToString:@"onActivityStartedV2"]) {
+		[self emitOnActivityStartedV2:value];
+	} else if ([name isEqualToString:@"onActivityStatusV2"]) {
+		[self emitOnActivityStatusV2:value];
+	} else if ([name isEqualToString:@"onActivityUpdateV2"]) {
+		[self emitOnActivityUpdateV2:value];
+	} else if ([name isEqualToString:@"onActivityCompletedV2"]) {
+		[self emitOnActivityCompletedV2:value];
+	} else if ([name isEqualToString:@"onActivityError"]) {
+		[self emitOnActivityError:value];
+	} else if ([name isEqualToString:@"onActivityRealTimeSpeed"]) {
+		[self emitOnActivityRealTimeSpeed:value];
 	} else if ([name isEqualToString:@"onError"]) {
 		[self emitOnError:value];
 	} else if ([name isEqualToString:@"onLog"]) {
@@ -350,6 +370,28 @@ static NSInteger sSinkMovesToLog = 20;
 	}
 	// O NSArray do TurboModule vai como está: strings (wrapper do Core atual) ou mapas do spec.
 	[[self coreBridgeFor:_cmd] deletedSavedDataFilteredArrayData:filteredArrayData category:category];
+}
+
+#pragma mark - Históricos da fase 3 (FC, estresse, SpO2 e treinos)
+
+- (void)getHistoryHeartRate:(double)daysBefore resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject
+{
+	[[self coreBridgeFor:_cmd] getHistoryHeartRateDaysBefore:daysBefore completion:CNCompletion(resolve, reject)];
+}
+
+- (void)getHistoryStress:(double)daysBefore resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject
+{
+	[[self coreBridgeFor:_cmd] getHistoryStressDaysBefore:daysBefore completion:CNCompletion(resolve, reject)];
+}
+
+- (void)getHistorySpO2:(double)daysBefore resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject
+{
+	[[self coreBridgeFor:_cmd] getHistorySpO2DaysBefore:daysBefore completion:CNCompletion(resolve, reject)];
+}
+
+- (void)getHistoryActivityV2:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject
+{
+	[[self coreBridgeFor:_cmd] getHistoryActivityV2Completion:CNCompletion(resolve, reject)];
 }
 
 #pragma mark - Ajustes, mensagens e interações (fase 2)
@@ -523,6 +565,43 @@ static NSInteger sSinkMovesToLog = 20;
 - (void)closeCameraMode:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject
 {
 	[[self coreBridgeFor:_cmd] closeCameraModeCompletion:CNCompletion(resolve, reject)];
+}
+
+#pragma mark - Atividade iniciada pelo app (fase 3)
+
+// As opções vão como chegam, como os dicionários da fase 2; o `stopActivityV2` do wrapper JS manda `{}` sem opções.
+// O `nil` (um `startActivityByTypeV2(null)` ou uma chamada direta ao módulo) para no `CNRejectNil` pelo mesmo motivo
+// do DP-100: o framework não recebe nulo e encerraria o processo.
+
+- (void)startActivityByTypeV2:(NSDictionary *)options resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject
+{
+	if (CNRejectNil(options, @"options", _cmd, reject)) {
+		return;
+	}
+	[[self coreBridgeFor:_cmd] startActivityByTypeV2Options:options completion:CNCompletion(resolve, reject)];
+}
+
+- (void)pauseActivityV2:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject
+{
+	[[self coreBridgeFor:_cmd] pauseActivityV2Completion:CNCompletion(resolve, reject)];
+}
+
+- (void)resumeActivityV2:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject
+{
+	[[self coreBridgeFor:_cmd] resumeActivityV2Completion:CNCompletion(resolve, reject)];
+}
+
+- (void)stopActivityV2:(NSDictionary *)options resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject
+{
+	if (CNRejectNil(options, @"options", _cmd, reject)) {
+		return;
+	}
+	[[self coreBridgeFor:_cmd] stopActivityV2Options:options completion:CNCompletion(resolve, reject)];
+}
+
+- (void)checkIosBackgroundLocationPermission:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject
+{
+	[[self coreBridgeFor:_cmd] checkIosBackgroundLocationPermissionCompletion:CNCompletion(resolve, reject)];
 }
 
 #pragma mark - Logs

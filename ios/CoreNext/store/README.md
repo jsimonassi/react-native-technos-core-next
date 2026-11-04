@@ -6,7 +6,7 @@ Histórico local e pareamento salvo. Par do `store/` do Android, com o mesmo for
 
 | Tipo | Papel |
 |---|---|
-| `FileSampleStore` | `SampleStore` em `Application Support/corenext/{steps,sleep,confirmed-steps,confirmed-sleep}.json`. Escrita atômica (`Data.write(options: .atomic)`); arquivo ilegível vira lista vazia com `WARN`; item inválido é pulado e contado. |
+| `FileSampleStore` | `SampleStore` em `Application Support/corenext/{steps,sleep,confirmed-steps,confirmed-sleep}.json`. Escrita atômica (`Data.write(options: .atomic)`); arquivo ilegível vira lista vazia com `WARN`; item inválido é pulado e contado. Medições e treinos da fase 3 ainda em stub: carregam vazio e não gravam, com `DEBUG`; as chaves confirmadas dos tipos novos já vão para `confirmed-<tipo>.json`. |
 | `SampleJsonCodec` | `{"version":1,"items":[...]}` com os nomes das propriedades do domínio, igual ao `SampleJsonCodec` do Android. |
 | `PairingStore` | Último relógio que chegou a `READY` (`address`, `profileId`, `name`) numa suíte própria do `UserDefaults` (`br.com.grupotechnos.corenext.pairing`). As três chaves são lidas e gravadas sob uma trava: o `CoreBridge` grava na thread da sessão e lê de outras, e um `load` no meio de um `save` não pode misturar dois relógios (o Android tem um único `edit()...apply()`). |
 

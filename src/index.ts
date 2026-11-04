@@ -2,11 +2,15 @@
  * Ponto de entrada da biblioteca `react-native-technos-core-next`.
  *
  * Mantém os nomes do Core atual (`TechnosCore`, `TechnosEvents`, `utils`, `deviceConnectStates`,
- * `deletedCategory`) para os apps Mormaii e Condor trocarem de pacote mudando o import. A referência completa de cada
- * método e evento, com payloads de exemplo e diferenças em relação ao Core atual, está em `docs/api-js.md`.
+ * `deletedCategory`, `TechnosCore.activityTypes`, os enums de valor das atividades e os componentes
+ * `TechnosNativeChronometer`, `TechnosNativeMap`, `TechnosMapStyles` e `TechnosNativeActionTimer`) para os apps Mormaii e
+ * Condor trocarem de pacote mudando o import. A referência completa de cada método e evento, com payloads de exemplo e
+ * diferenças em relação ao Core atual, está em `docs/api-js.md`.
  */
+import { activityTypes } from "./activityTypes";
 import { deletedCategory, deviceConnectStates, errorCodes, logLevels, type LogLevelValue } from "./constants";
 import NativeCoreNext from "./specs/NativeCoreNext";
+import type { TechnosActivityByTypeStartV2, TechnosActivityByTypeStop } from "./types/activity";
 import type { TechnosEventEmitter, TechnosEventEmitters, TechnosEventMap } from "./types/emitter";
 import type { LastPairedDevice, LogEvent, SavedItemDelete } from "./types/events";
 import type {
@@ -39,7 +43,8 @@ import { groupSavedItemsByCategory } from "./utils/savedData";
  * Diferença principal em relação ao Core atual: lá os comandos são `void` e falhas são silenciosas; aqui quase todos
  * devolvem Promise. Código que ignora o retorno continua funcionando, mas convém tratar a rejeição para não gerar
  * "Possible unhandled promise rejection". Os ajustes, mensagens e interações da fase 2 (de `setUserInfo` a
- * `closeCameraMode`) e o `resetDevice` já devolvem a Promise marcada como observada (`utils.promise.observed`):
+ * `closeCameraMode`), o `resetDevice` e os métodos da fase 3 (históricos de FC, estresse, SpO2 e treinos, a atividade
+ * e o `checkIosBackgroundLocationPermission`) já devolvem a Promise marcada como observada (`utils.promise.observed`):
  * chamados sem `await`, não geram esse aviso; com `await`, rejeitam normalmente.
  */
 export const TechnosCore = {
@@ -51,6 +56,11 @@ export const TechnosCore = {
 	errorCodes,
 	/** Níveis de `setLogLevel`. Também exportado na raiz. */
 	logLevels,
+	/**
+	 * Códigos Technos dos tipos de atividade (`type` de `startActivityByTypeV2` e dos treinos), cópia literal da tabela
+	 * do Core atual (`v4.3.57`). Fase 3.
+	 */
+	activityTypes,
 
 	/**
 	 * Cria o grafo nativo (sessão, transporte, logger) e, se houver relógio pareado salvo, pede a reconexão.
@@ -173,9 +183,12 @@ export const TechnosCore = {
 	refreshSteps: (): Promise<void> => NativeCoreNext.refreshSteps(),
 
 	/**
-	 * Lê o histórico do relógio (passos e sono) e grava localmente. Emite `onSyncStarted`, `onSyncProgress` e
-	 * `onSyncFinished`; resolve depois de `onSyncFinished` e rejeita com o erro que interrompeu o sync (também em
-	 * `onError`). No Core atual o sync do SMA é simulado (só emite os eventos com atraso).
+	 * Lê o histórico do relógio (passos e sono; no Condor Reebok também frequência cardíaca, estresse e treinos) e grava
+	 * localmente. Emite `onSyncStarted`, `onSyncProgress` e `onSyncFinished`; resolve depois de `onSyncFinished` e
+	 * rejeita com o erro que interrompeu o sync (também em `onError`). Com uma atividade iniciada pelo app em andamento,
+	 * os treinos ficam de fora (DP-131). No Core atual o sync do SMA é simulado (só emite os eventos com atraso).
+	 *
+	 * Por enquanto (fase 3 em andamento) o nativo lê só passos e sono, em todos os modelos (DP-94).
 	 */
 	syncDataHistory: (): Promise<void> => NativeCoreNext.syncDataHistory(),
 
@@ -194,6 +207,51 @@ export const TechnosCore = {
 	 * não há sono. Exploratório no fitGPS: o Core atual nunca emitiu sono para SMA.
 	 */
 	getHistorySleep: (): Promise<void> => NativeCoreNext.getHistorySleep(),
+
+	// Fase 3: históricos e atividade. Nomes e argumentos do Core atual (`NativeCore.ts` do `v4.3.57`), com Promise no
+	// lugar do `void` de lá, todas observadas; regras em `docs/api-js.md` e no `CoreBridge` do Repo 1.
+
+	/**
+	 * Emite `onHistoryHeartRate` com as horas de frequência cardíaca gravadas localmente e ainda não confirmadas por
+	 * {@link TechnosCore.deletedSavedData} (categoria `HEART_HERT`), e resolve. Sem dados emite a lista vazia (nunca
+	 * `NO_DATA`); falha de leitura rejeita `IO_ERROR`. As horas completas vão em `avgValues` (média, mínimo e máximo) e
+	 * as leituras da hora local corrente em `otherValues`. Não fala com o relógio: chame `syncDataHistory` antes. Só o
+	 * Condor Reebok mede; nos outros modelos a lista vem vazia (DP-110). Promise observada.
+	 *
+	 * Por enquanto (fase 3 em andamento) o nativo ainda não lê nem guarda a frequência cardíaca: o evento sai sempre com
+	 * a lista vazia.
+	 *
+	 * @param daysBefore só vai para o log, como no `getHistoryPedometer` (entra tudo o que não foi confirmado).
+	 */
+	getHistoryHeartRate: (daysBefore: number): Promise<void> =>
+		observed(NativeCoreNext.getHistoryHeartRate(daysBefore)),
+
+	/**
+	 * Emite `onHistoryStress` com as horas de estresse ainda não confirmadas (categoria `STRESS`), e resolve, com as
+	 * mesmas regras de {@link TechnosCore.getHistoryHeartRate} (média arredondada; `stressValues` só no Condor Reebok).
+	 * Promise observada. Por enquanto (fase 3 em andamento) o evento sai sempre com a lista vazia, como o da frequência
+	 * cardíaca.
+	 *
+	 * @param daysBefore só vai para o log.
+	 */
+	getHistoryStress: (daysBefore: number): Promise<void> => observed(NativeCoreNext.getHistoryStress(daysBefore)),
+
+	/**
+	 * Emite `onHistorySpo2` sempre com `{ historyspo2: [] }` e resolve: nenhum modelo da PoC lê SpO2, e a produção também
+	 * não lia no Condor Reebok (F3-D7). Existe porque o app Condor chama. Promise observada.
+	 *
+	 * @param daysBefore ignorado.
+	 */
+	getHistorySpO2: (daysBefore: number): Promise<void> => observed(NativeCoreNext.getHistorySpO2(daysBefore)),
+
+	/**
+	 * Emite `onHistoryActivityV2` com os treinos gravados localmente e ainda não confirmados (categoria `ACTIVITY`): os
+	 * feitos no relógio (`activityOrigin: "Watch"`) e as atividades iniciadas pelo app (`"Phone"`), em ordem de início, e
+	 * resolve. Sem dados emite a lista vazia; falha de leitura rejeita `IO_ERROR`. Só o Condor Reebok tem treinos; nos
+	 * outros modelos a lista vem vazia (DP-110). Promise observada. Por enquanto (fase 3 em andamento) o nativo ainda não
+	 * lê nem guarda treinos: o evento sai sempre com a lista vazia.
+	 */
+	getHistoryActivityV2: (): Promise<void> => observed(NativeCoreNext.getHistoryActivityV2()),
 
 	/**
 	 * Marca registros como já enviados ao backend; os dias deles deixam de sair em `getHistoryPedometer` e
@@ -395,6 +453,61 @@ export const TechnosCore = {
 	closeCameraMode: (): Promise<void> => observed(NativeCoreNext.closeCameraMode()),
 
 	/**
+	 * Inicia uma atividade no relógio (fase 3, só o Condor Reebok). Resolve depois das escritas; o início confirmado pelo
+	 * relógio sai em `onActivityStartedV2` (status 2) e, a partir dele, um `onActivityUpdateV2` por segundo. O relógio
+	 * tem 10 s, contados desta chamada, para confirmar; sem isso, `onActivityError` com `errorCode` -1 e a atividade não
+	 * começa.
+	 *
+	 * Erros em `onActivityError`: -1 sem conexão (`NOT_READY`), em modelo sem atividade pelo app (`NOT_SUPPORTED`), com
+	 * argumento inválido (`INVALID_ARGUMENT`) ou sem confirmação no prazo; 1 com uma atividade já em andamento (resolve);
+	 * 2 com a bateria do relógio baixa (`LOW_BATTERY`). As rejeições também saem em `onError`. Sem GPS: a distância é
+	 * a do relógio (DP-127). Promise observada. No Core atual é `void`.
+	 *
+	 * Por enquanto (fase 3 em andamento) a atividade iniciada pelo app não está ligada: em todo modelo, o nativo emite
+	 * `onActivityError` com `errorCode` -1 na hora e resolve, sem falar com o relógio.
+	 *
+	 * @param activityOptions `type` (de {@link TechnosCore.activityTypes}) é obrigatório; as metas são ignoradas.
+	 */
+	startActivityByTypeV2: (activityOptions: TechnosActivityByTypeStartV2): Promise<void> =>
+		observed(NativeCoreNext.startActivityByTypeV2(activityOptions)),
+
+	/**
+	 * Pausa a atividade em andamento: depois da escrita, emite `onActivityStatusV2` (status 4) e resolve, sem esperar o
+	 * eco do relógio (DP-122). Sem atividade, resolve sem falar com o relógio. Durante um sync, espera o fim dele na
+	 * fila. Promise observada. No Core atual é `void`. Por enquanto (fase 3 em andamento) nenhuma atividade chega a
+	 * começar, então resolve sem falar com o relógio e sem evento.
+	 */
+	pauseActivityV2: (): Promise<void> => observed(NativeCoreNext.pauseActivityV2()),
+
+	/**
+	 * Retoma a atividade pausada: depois da escrita, emite `onActivityStatusV2` (status 3) e resolve, como
+	 * {@link TechnosCore.pauseActivityV2}. Promise observada. No Core atual é `void`. Por enquanto, como a pausa, resolve
+	 * sem falar com o relógio e sem evento.
+	 */
+	resumeActivityV2: (): Promise<void> => observed(NativeCoreNext.resumeActivityV2()),
+
+	/**
+	 * Encerra a atividade: lê o registro do treino no relógio, emite `onActivityCompletedV2` (status 0) e resolve. Uma
+	 * falha ou queda no caminho fecha com os dados do telefone. Com `{ forceStop: true }`, encerra só no telefone, sem
+	 * evento e sem registro, e resolve na hora (o app sobe ele mesmo o último update; DP-124). Sem atividade, resolve sem
+	 * falar com o relógio. Promise observada. No Core atual é `void`. Por enquanto, como a pausa, resolve sem falar com o
+	 * relógio e sem evento.
+	 *
+	 * @param finishActivityOptions opcional, como no Core; sem ele, o nativo recebe `{}`.
+	 */
+	stopActivityV2: (finishActivityOptions?: TechnosActivityByTypeStop): Promise<void> =>
+		observed(NativeCoreNext.stopActivityV2(finishActivityOptions ?? {})),
+
+	/**
+	 * Autorização de localização em segundo plano: no iOS, `"granted"` só com "Sempre" e `"denied"` no resto; no Android
+	 * rejeita `NOT_SUPPORTED` (também em `onError`), onde o Core atual rejeitava `"-1"`. Não pede permissão. Promise
+	 * observada. Por enquanto (fase 3 em andamento) o iOS responde sempre `"denied"`: a leitura do `CLLocationManager`
+	 * ainda não está ligada.
+	 */
+	checkIosBackgroundLocationPermission: (): Promise<string> =>
+		observed(NativeCoreNext.checkIosBackgroundLocationPermission()),
+
+	/**
 	 * Últimas entradas do log nativo, da mais nova para a mais antiga (o nativo guarda até 2000). Novo.
 	 *
 	 * @param limit quantidade máxima de entradas.
@@ -428,6 +541,8 @@ const typed = <K extends keyof TechnosEventMap>(name: K): TechnosEventEmitter<Te
  * Uso: `const sub = TechnosEvents.onBatteryStatus(e => ...); sub.remove();`. Mesmos nomes do Core atual;
  * `onDeviceInfo`, `onError` e `onLog` são novos. Os eventos espontâneos do relógio da fase 2 (`onFindPhone`,
  * `onTakeAPicture`, `onDeviceRequestedCameraMode`) e o `onOpenCameraMode` não são guardados enquanto o JS não existe.
+ * Da fase 3, os quatro históricos e o `onActivityCompletedV2` são guardados e entregues quando o JS volta; os outros
+ * eventos de atividade não (DP-132).
  */
 export const TechnosEvents: TechnosEventEmitters = {
 	/** Um relógio suportado apareceu na busca. */
@@ -463,12 +578,46 @@ export const TechnosEvents: TechnosEventEmitters = {
 	onOpenCameraMode: typed("onOpenCameraMode"),
 	/** Disparo da câmera no relógio com o modo câmera fechado. */
 	onDeviceRequestedCameraMode: typed("onDeviceRequestedCameraMode"),
+	/** Resposta de `getHistoryHeartRate`. */
+	onHistoryHeartRate: typed("onHistoryHeartRate"),
+	/** Resposta de `getHistoryStress`. */
+	onHistoryStress: typed("onHistoryStress"),
+	/** Resposta de `getHistorySpO2`, sempre com a lista vazia. */
+	onHistorySpo2: typed("onHistorySpo2"),
+	/** Resposta de `getHistoryActivityV2`. */
+	onHistoryActivityV2: typed("onHistoryActivityV2"),
+	/** O relógio confirmou o início pedido por `startActivityByTypeV2` (status 2). */
+	onActivityStartedV2: typed("onActivityStartedV2"),
+	/** Pausa (status 4) ou retomada (status 3), pelo app ou no relógio. */
+	onActivityStatusV2: typed("onActivityStatusV2"),
+	/** Atualização da atividade em andamento a cada 1 s (status 2 ou 3), com a duração pelo relógio do telefone. */
+	onActivityUpdateV2: typed("onActivityUpdateV2"),
+	/** Fim da atividade (status 0), pelo `stopActivityV2` ou no relógio. */
+	onActivityCompletedV2: typed("onActivityCompletedV2"),
+	/** Falha ou recusa da atividade (`errorCode` -1, 1 ou 2). */
+	onActivityError: typed("onActivityError"),
+	/** Velocidade em tempo real. Declarado por compatibilidade; nunca sai (sem GPS, DP-127). */
+	onActivityRealTimeSpeed: typed("onActivityRealTimeSpeed"),
 	/** Falha de um comando (toda rejeição) ou do link. */
 	onError: typed("onError"),
 	/** Cada entrada do log nativo, inclusive os pacotes GATT em hex. */
 	onLog: typed("onLog"),
 };
 
+export {
+	ActionType,
+	PlanType,
+	TechnosActivityErrorCode,
+	TechnosActivityOrigin,
+	TechnosActivityV2Status,
+} from "./activityEnums";
+export type { TechnosExerciseGoalTypes } from "./activityEnums";
+export { TechnosMapStyles } from "./components/mapStyles";
+export { TechnosNativeActionTimer } from "./components/TechnosNativeActionTimer";
+export { TechnosNativeChronometer } from "./components/TechnosNativeChronometer";
+export type { TechnosNativeChronometerProps } from "./components/TechnosNativeChronometer";
+export { TechnosNativeMap } from "./components/TechnosNativeMap";
+export type { TechnosNativeMapProps } from "./components/TechnosNativeMap";
 export { deletedCategory, deviceConnectStates, errorCodes, logLevels, technosEventNames } from "./constants";
 export type { DeletedCategory, DeviceConnectState, ErrorCode, LogLevelName, LogLevelValue } from "./constants";
 export { utils };

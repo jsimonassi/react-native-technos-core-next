@@ -1,0 +1,476 @@
+{
+ "s0": {
+  "status": "green",
+  "summary": "S0 is finished in Repo 1 (/Users/joao.farias/technos-watch-protocol), and both gates passed. `./gradlew check dokkaHtml` ran 525/509/509/519 :protocol tests and 221/216/216/229 :bridge tests (JVM, Android debug, Android release, iOS simulator) with 0 failures. Both CoreBridge golden files are byte-identical (I did not regenerate them), and the strict replays of the real recordings still pass. The publish gate (`publishToMavenLocal` plus the XCFramework, coordinate 0.1.0) also passed. Repo 2 was not touched.\n\nWhat S0 adds, in code and KDoc:\n\n- **Domain.** `DataKind` gains HEART_RATE, STRESS and WORKOUTS after SLEEP. New types: `MeasurementSample`, `WorkoutOrigin`, `WorkoutRecord`, and the `WatchAction`s StartActivity(sportType, notAfterEpochMillis), PauseActivity, ResumeActivity, StopActivity and PhoneActivityInfo(distanceMeters). New `WatchEvent`s ActivityState(phase, fromWatch), ActivityRefused(requested?, lowBattery) and HeartRateMeasured(bpm), plus the `ActivityPhase` enum and a 15th error code, `WatchErrorCodes.LOW_BATTERY`.\n- **Profiles.** `DeviceProfile.dataKinds` defaults to [STEPS, SLEEP]; CONDOR_REEBOK has all five.\n- **SampleStore.** 4 new methods: loadMeasurements/saveMeasurements per kind, and loadWorkouts/saveWorkouts. `InMemorySampleStore` implements them.\n- **DeviceDriver.** `readMeasurements`, `readWorkouts(since, knownStartSeconds)` and `readLastWorkout` default to NOT_SUPPORTED.\n- **WatchSession.** New `getMeasurements`, `getWorkouts`, `storeWorkout` and `fetchLastWorkout`. Under the hood: `SessionCommand.FetchLastWorkout` goes through the queue, `storeWorkout` goes through the inbox, and an expired `StartActivity` ends with CANCELLED when its turn comes, before reaching the driver.\n- **SyncEngine.** Reads only the requested kinds that are in the profile, in `entries` order. HEART_RATE, STRESS and WORKOUTS are non-fatal: NOT_SUPPORTED is logged at INFO, other errors at WARN, and DISCONNECTED still propagates. fitGPS and Life Ultra GPS stay at 0/50/100; the P85 gives 0/20/40/60/80/100.\n- **CRP.**\n  - `CrpCommand` gets the 13 new labels.\n  - `CrpDriver` delegates to three new empty groups, `CrpHealthReader`, `CrpWorkoutReader` and `CrpActivityControl`, which reject NOT_SUPPORTED before writing any byte.\n  - The unsolicited-frame hooks for the three groups and the 2A37 hook (`CrpActivityControl.onHeartRate`, same DEBUG log as before) are already wired in the driver.\n  - `CrpExchange.emitEvent` lets a group hand a `WatchEvent` to the session.\n  - Three empty simulator extensions exist: `CrpSimulatorHealth`, `CrpSimulatorWorkouts` and `CrpSimulatorActivity`.\n- **Bridge.**\n  - `CoreHost` gains 5 methods; `FakeCoreHost` implements them.\n  - `CoreBridge` gains the 9 methods as stubs: the four histories emit their event with an empty list before resolve, and are queued while JS is absent. `startActivityByTypeV2` emits `onActivityError {errorCode: -1}` (not queued) and resolves without touching the session. pause/resume/stop resolve with no traffic. `checkIosBackgroundLocationPermission` resolves with `host.locationAuthorization()`; when that is null (Android) it emits onError and rejects NOT_SUPPORTED, per F3-D26.\n  - The new session events are only logged.\n  - The internal constructor takes `nowMillis` and `schedulerContext` (defaults: system clock and `Dispatchers.Default`). Existing tests still compile, because `systemZone` stays the trailing lambda.\n  - The internal `ActivitySessionPort` interface exists, with `ActivityPortResult`.\n- **Interop files.** MinimalHost.swift and MinimalTurboModule.mm now cover everything new: 27 event names and 56 methods. checkSwiftInterop, checkObjcInterop and checkObjcHeader pass, and the header has no coroutines.\n- **Docs.** Updated: the domain, profile, session, driver, crp, testKit, bridge, swift-interop and objc-interop READMEs, plus docs/arquitetura.md §1, §6, §7, §8 and the §13 CoreHost and inventory tables.\n- **New tests.** `Phase3SessionContractTest` (8 tests), `CoreBridgePhase3FallbackTest` (7), and two tests added to `CrpCommandCatalogTest`. The existing `B9/11/03` label assertion changed from STRESS to STRESS_HISTORY, as the spec asks.",
+  "specDeviations": [
+   "kotlinx-coroutines-core was added to :bridge commonMain (implementation) in S0, not S5. The internal constructor takes the scheduler dispatcher (CoroutineContext, default Dispatchers.Default), and its default needs it. checkObjcHeader still shows no coroutines.",
+   "The StartActivity.notAfter check in SessionEngine.execute (spec: S3) was done in S0. That makes the WatchSession.perform KDoc and the new tests true from S0. S3 should keep it, not duplicate it.",
+   "SyncEngine.kt (not in the S0 file list) changed. The new DataKind entries made its `when` non-exhaustive, so S0 adds the F3-D4 profile intersection and non-fatal calls to driver.readMeasurements(kind) and readWorkouts(now - 7 days, knownStartSeconds = emptySet()). Results are only logged. This lets S1/S2a test through a real session sync before S3. S3 must add the HistoryStore merges and pass the known starts and confirmed keys. SyncEngine now also takes the WatchClock.",
+   "CrpInteractions.kt and CrpExchange.kt (phase-2 files) were touched. CrpInteractions.perform needed exhaustive branches for the new actions (they throw IllegalArgumentException; CrpDriver never routes them there). CrpExchange gained emitEvent(event) so phase-3 groups can deliver WatchEvents.",
+   "CrpDriver.handleSide and handleFrame are already wired to the groups: 2A37 → CrpActivityControl.onHeartRate, which keeps the phase-1 'CrpDriver/heartRate hr=N' DEBUG line; unsolicited frames go health → workouts → activity, after the phase-2 hooks. The spec has S2b edit handleSide; with this wiring S2b can work only in CrpActivityControl.kt.",
+   "The startActivityByTypeV2 stub resolves after onActivityError -1, as the task and the S0 scope say. Note the full F3-D15 behavior for NOT_SUPPORTED/NOT_READY is onError + reject + onActivityError -1; S5 must switch to that.",
+   "The getHistory* stubs emit an empty list without reading session.getMeasurements/getWorkouts (which return empty in S0 anyway); S4 replaces them.",
+   "Two test files outside the spec's S0 list were added: Phase3SessionContractTest (protocol) and CoreBridgePhase3FallbackTest (bridge). Two of the fallback tests (startEmitsTheGenericActivityErrorAndResolvesWithoutTouchingTheWatch, pauseResumeAndStopResolveWithoutTraffic) encode stub behavior and must be updated or removed by S5. The history-empty tests stay valid for an empty store.",
+   "ActivitySessionPort is designed as callbacks returning ActivityPortResult(errorCode, message): linkState, perform, fetchLastWorkout, getWorkouts, storeWorkout, confirmUploaded. Only the interface exists; S5 implements it over WatchSession and may adjust it.",
+   "WatchSession KDoc (getMeasurements, getWorkouts, storeWorkout merge with PHONE-wins and ±1 s, confirmUploaded key formats) describes the final contract. The S0 bodies are stubs: empty queries, storeWorkout only logs, and confirmUploaded still accepts only day keys until S3 changes HistoryStore.confirm. The repo's KDoc cites ADR 40/41, which S4/S5 have not written yet.",
+   "The repo's own CLAUDE.md was not edited; the open points list what it needs."
+  ],
+  "openPoints": [
+   "Repo 1 CLAUDE.md package table still says `profile/` may depend on 'nada'. It now imports domain/DataKind (DeviceProfile.dataKinds). docs/arquitetura.md §1 and profile/README.md are updated; the CLAUDE.md row needs the same change, and the phase-3 scope text there is for the integrator.",
+   "S0h (Repo 2) must implement the new members, Swift names from the published header: SampleStore loadMeasurements(kind:), saveMeasurements(kind:samples:), loadWorkouts(), saveWorkouts(records:). CoreHost startActivityWork(), stopActivityWork(), loadPreference(key:), savePreference(key:value:), locationAuthorization(). ObjC selectors: getHistoryHeartRateDaysBefore:completion:, getHistoryStressDaysBefore:completion:, getHistorySpO2DaysBefore:completion:, getHistoryActivityV2Completion:, startActivityByTypeV2Options:completion:, pauseActivityV2Completion:, resumeActivityV2Completion:, stopActivityV2Options:completion:, checkIosBackgroundLocationPermissionCompletion:. 0.1.0 is republished in mavenLocal; Android needs --refresh-dependencies, iOS needs sync-xcframework.",
+   "S3: SessionEngine.getMeasurements/getWorkouts/storeWorkout and the FetchLastWorkout branch are marked with a 'Fase 3' region and only log 'not kept'. storeWorkout does not yet copy record.heartRates on the caller thread; add that defensive copy (like syncHistory/applySetting). SyncEngine must pass known starts and confirmed WORKOUTS keys to readWorkouts and merge results. HistoryStore.confirm/prune per kind is still pending: today confirmUploaded(HEART_RATE, 'yyyy-MM-ddTHH') is rejected as an invalid day key.",
+   "S2b: CrpActivityControl is the owner of perform (5 actions), onUnsolicited (RX 68) and onHeartRate (2A37). Use io.emitEvent(WatchEvent) to deliver ActivityState, ActivityRefused and HeartRateMeasured. S2a: CrpWorkoutReader.onUnsolicited is the B2 01 hook. S1: CrpHealthReader. Each simulator extension is consulted after the phase-2 groups and before the phase-1 rule.",
+   "S4: CoreBridge regions 'Históricos da fase 3' and 'Atividade iniciada pelo app (fase 3)' are separated to reduce merge conflicts. Constants METHOD_HISTORY_*, METHOD_*_ACTIVITY, METHOD_CHECK_LOCATION, EVENT_ACTIVITY_ERROR and ACTIVITY_ERROR_GENERIC are in the companion. syncDataHistory still passes [STEPS, SLEEP]. The golden was not regenerated because nothing in it changed.",
+   "S5: the internal constructor already has nowMillis and schedulerContext (internal vals); the trailing-lambda systemZone keeps existing test constructions compiling. ActivitySessionPort has no implementation yet. FakeCoreHost journals 'host startActivityWork'/'host stopActivityWork'/'host savePreference <key> <value>' and records loadPreference(<key>)/locationAuthorization as queries.",
+   "docs/arquitetura.md §6/§7/§8/§13 got brief phase-3 entries. ADR 40/41/42, protocolo-crp §6.4-6.6/§7/§12/§13, glossario, pendencias, the root README and the rest of the docs field belong to the later slices."
+  ],
+  "deviations": [
+   {
+    "title": "Phase-3 histories always empty (S0 stub)",
+    "production": "getHistoryHeartRate/Stress/ActivityV2 on the P85 return real data from 0x35, B9 11 03 and B2 (CRPService.java:422-479, 1581-1634).",
+    "coreNext": "onHistoryHeartRate/onHistoryStress/onHistoryActivityV2 always emit an empty list before resolve, and are queued while JS is absent. The P85 sync walks the new kinds, but CrpHealthReader/CrpWorkoutReader reject NOT_SUPPORTED (INFO) and nothing is stored.",
+    "reason": "Fallback contract before S1/S2a/S3/S4 land; it lets the Condor sync without a TypeError.",
+    "coveredBySpecDp": "Temporary. Only DP-110 (SMA/iDO empty) covers part of it; for the P85 it becomes a DP only if a slice is cut. Watch workouts are cut item (d)."
+   },
+   {
+    "title": "App-started activity not available (S0 stub)",
+    "production": "startActivityByTypeV2 sends 68 [CRP type] and the echo leads to onActivityStartedV2 (CRPActivityManagerV2.java:85-119).",
+    "coreNext": "Emits onActivityError {errorCode: -1} immediately (not queued) and resolves, with no traffic and no startActivityWork. pause/resume/stop resolve with no traffic. ActivityState/ActivityRefused/HeartRateMeasured from the session are only logged.",
+    "reason": "Fallback: the Condor countdown shows the generic error instead of waiting 12 s.",
+    "coveredBySpecDp": "Temporary until S5. If cut item (c) is applied, it becomes a DP; parts overlap DP-111 (SMA/iDO) and DP-121 (-1 is emitted)."
+   },
+   {
+    "title": "checkIosBackgroundLocationPermission on Android",
+    "production": "Android rejects with '-1' (NativeCoreModule.kt:915-917).",
+    "coreNext": "When the host returns null (Android), CoreBridge emits onError and rejects NOT_SUPPORTED. On iOS it resolves with the host string ('granted' only for authorizedAlways, else 'denied').",
+    "reason": "F3-D26.",
+    "coveredBySpecDp": "Yes: the DP-18 update in the spec's deviations list."
+   },
+   {
+    "title": "StartActivity expired in the queue → CANCELLED",
+    "production": "No deadline in native code (CRPService.java:1696-1701).",
+    "coreNext": "WatchSession.perform(StartActivity) with notAfterEpochMillis already past when its turn comes ends with CANCELLED and never reaches the driver.",
+    "reason": "F3-D15/E6.",
+    "coveredBySpecDp": "Yes: DP-120."
+   },
+   {
+    "title": "LOW_BATTERY error code",
+    "production": "No such code; low battery leads to onActivityError 2 or a silent 68 FF.",
+    "coreNext": "New WatchErrorCodes.LOW_BATTERY (only declared in S0; the CRP use comes in S2b).",
+    "reason": "F3-D15.",
+    "coveredBySpecDp": "Yes: the DP-18 update and DP-119."
+   },
+   {
+    "title": "P85 sync progress with all kinds",
+    "production": "CRP never emits onSyncProgress (DP-113).",
+    "coreNext": "WatchSession.syncHistory with empty kinds on the P85 gives 0/20/40/60/80/100. CoreBridge.syncDataHistory still passes [STEPS, SLEEP], so JS still sees 0/50/100 until S4.",
+    "reason": "F3-D4.",
+    "coveredBySpecDp": "Yes: DP-113."
+   }
+  ],
+  "testsRun": [
+   {
+    "command": "./gradlew :protocol:compileTestKotlinJvm",
+    "result": "OK"
+   },
+   {
+    "command": "./gradlew :protocol:jvmTest (before adding the new tests)",
+    "result": "OK, 63 suites, 0 failures"
+   },
+   {
+    "command": "./gradlew :protocol:jvmTest --tests '*Phase3SessionContractTest*' --tests '*CrpCommandCatalogTest*' :bridge:jvmTest --tests '*CoreBridgePhase3FallbackTest*'",
+    "result": "OK: 8 + 8 + 7 tests, 0 failures"
+   },
+   {
+    "command": "./gradlew :bridge:linkDebugFrameworkIosSimulatorArm64 :bridge:checkSwiftInterop :bridge:checkObjcInterop :bridge:checkObjcHeader",
+    "result": "OK; header report: 1837 lines, none of [completionHandler, Kotlinx_coroutines, Kotlinx_datetime, Kotlinx_serialization, Flow, Coroutine]"
+   },
+   {
+    "command": "./gradlew check dokkaHtml",
+    "result": "BUILD SUCCESSFUL. :protocol jvmTest 525 / testDebugUnitTest 509 / testReleaseUnitTest 509 / iosSimulatorArm64Test 519 tests; :bridge 221 / 216 / 216 / 229; 0 failures. Both GOLDEN files matched without regeneration (fitgps 99 lines, TX 167/167; condorreebok-phase2 162 lines, 52 TX all in PHASE2_VECTORS). REPLAY lines present for the real-fixture replays on iOS. dokkaHtml of both modules generated with failOnWarning."
+   },
+   {
+    "command": "./gradlew publishToMavenLocal assembleTechnosWatchProtocolXCFramework",
+    "result": "BUILD SUCCESSFUL; br.com.grupotechnos.watch:{protocol,bridge}:0.1.0 republished (bridge-android POM now lists kotlinx-coroutines-core-jvm 1.10.1 as runtime); XCFrameworks written to bridge/build/XCFrameworks/{debug,release}/TechnosWatchProtocol.xcframework"
+   }
+  ]
+ },
+ "s6a": {
+  "status": "green",
+  "summary": "I implemented slice S6a (the JS contract) in Repo 2, plus the TypeScript side of S0h. Every JS gate passes.\n\n**Spec (`src/specs/NativeCoreNext.ts`)**\n- Added the 9 methods as listed in `spec.api`: `getHistoryHeartRate`, `getHistoryStress`, `getHistorySpO2`, `getHistoryActivityV2`, `startActivityByTypeV2`, `pauseActivityV2`, `resumeActivityV2`, `stopActivityV2` and `checkIosBackgroundLocationPermission` (`Promise<string>`); the other eight return `Promise<void>`.\n- Added the 10 event emitters. They sit after the phase 2 events and before `onError`/`onLog`.\n\n**Wrapper (`src/index.ts`)**\n- All 9 methods go through `observed()`. With no argument, `stopActivityV2` sends `{}` to the native side.\n- Added `TechnosCore.activityTypes`, a literal copy of the v4.3.57 table: 171 entries, comments kept, deliberately without `as const` so each value stays `number` as in the Core.\n- Added the 10 events to `TechnosEvents`.\n- The root exports `TechnosActivityV2Status`, `TechnosActivityOrigin`, `TechnosActivityErrorCode`, `PlanType` and `ActionType` as values. `TechnosExerciseGoalTypes` is exported as a type only.\n\n**New files**\n- `src/activityEnums.ts`: TS enums with the Core's members, numbers and strings.\n- `src/activityTypes.ts`: the activity type table.\n- `src/types/activity.ts`: literal copies of `TechnosActivityHistoryV2Activity` (all optionals kept) and the types it uses, plus `TechnosActivityHistoryV2`, `TechnosActivityError`, `TechnosActivityRealTimeSpeed`, `TechnosActivityByTypeStartV2`/`Stop` and `TechnosUserExerciseGoal`.\n\n**Changed types and constants**\n- `events.ts` has the heart-rate, stress and SpO2 history event shapes; `compat.ts` adds the Core names for them (`TechnosHeartRateHistory`, `TechnosStressHistoryDay`, `TechnosOxygenationHistoryDay` and the rest).\n- `emitter.ts` maps each of the 10 events to its payload type.\n- `constants.ts`: the 10 names in `technosEventNames`, `LOW_BATTERY` in `errorCodes`, and updated comments for `deletedCategory`, `disconnectOnActivity`, `CANCELLED` and `NOT_SUPPORTED`.\n\n**Mock**\n- Includes `activityTypes`, the enums, the 9 methods and the 10 emitters. The 8 void methods resolve by default and `checkIosBackgroundLocationPermission` resolves `\"denied\"`; `mockReset` restores these defaults.\n\n**Tests**\n- New `example/__tests__/activity.test.ts` (35 tests) covers:\n  - argument passing and `observed()` for all 9 methods;\n  - `stopActivityV2` sending `{}`;\n  - `activityTypes` against an embedded copy of the v4.3.57 table;\n  - the enum values from both the real root and the mock;\n  - the spec's emitters and methods (read from the spec file) matching `technosEventNames` and `TechnosCore`/mock;\n  - the mock delivering the new events.\n- `wrapper.test.ts` counts updated: 27 events, 20 error codes.\n\n**Other checks**\n- A one-off type check in the scratchpad confirmed every copied type has exactly the same keys and optional/required fields as v4.3.57. The only difference is `stressValues`, which also accepts `null`.\n- I checked the Condor's imports: every runtime value it takes from the Core for activity and history now exists, including `PlanType` and `TechnosCore.activityTypes`, which `constants/Exercises` reads on import.\n\n**Docs**\n- Only short notes in `src/README.md`.\n\nI did not run the native builds (`:app:assembleDebug`, `pod install`), as instructed; they will fail to compile against the new spec until S0h adds the native side.",
+  "specDeviations": [
+   "I exported ActionType as a value (root and mock) on top of the four the spec lists (F3-D24), and the spec's DP-73 update lists ActionType as pending. Reason: the task says to make sure every runtime value the Condor imports for activity exists. ActionType is the type of TechnosActivityHistoryV2SportPlanActionsResume.type, which the literal copy needs, and the Condor compares its values from the root in componentsV2/Activities/SportPlanCard/components/SportPlanModal and utils/sportPlan.ts. S6b should take ActionType out of DP-73's pending list.",
+   "I did not add TechnosNativeMapProps or TechnosNativeChronometerProps, although spec.api lists them among the types for events.ts/compat.ts/activity.ts. In production they live next to the components, and TechnosNativeMapProps depends on the TechnosMapStyles enum, which is S6b's (src/components/mapStyles.ts). They are left to S6b along with the components.",
+   "I made the S0h part of src/specs/NativeCoreNext.ts (9 methods, 10 emitters) as the orchestrator asked. The native parts of S0h are not done.",
+   "I edited example/src/hooks/coreState.ts, which is not on S6a's file list: the example typecheck gate failed (TS2366) because the switch no longer covered every event. The change is minimal (the 10 cases only record when the event arrived); S9 will replace it with real state.",
+   "The 'activityTypes: snapshot against v4.3.57' test is an expected table embedded in the test, generated once by script from git show v4.3.57:src/NativeModules/index.ts lines 45-229, and checked by name, code and order. I did not use a Jest snapshot file because it would be written from our own copy rather than from production.",
+   "docs/api-js.md is not updated, although the Repo 2 CLAUDE.md asks for it in the same change as a spec change. The orchestrator gave the big docs pass to S6b; I only added short notes to src/README.md.",
+   "Event shapes follow the repo's existing pattern: new names in events.ts (HistoryHeartRateEvent, HeartRateHistoryDay, StressHourAverage, Spo2HistoryDay, ...) with the Core names as aliases in compat.ts. Activity types keep the Core names directly in types/activity.ts, as watchSettings.ts already does."
+  ],
+  "openPoints": [
+   "S0h must add the 9 overrides in NativeCoreNextModule.kt and RCTNativeCoreNext.mm and the 10 names in both hosts' emit switch. Until then the Android codegen will generate abstract methods with no implementation, so :app:assembleDebug and the iOS build will not compile. I did not run either.",
+   "The TSDoc of the 9 methods describes the spec's final contract (F3-D7, D9, D15-D18, D23, D26, D29), not the S0 fallback. If cut (c) or (d) is applied, revise the TSDoc of start/pause/resume/stop and getHistoryActivityV2 (S6b, after S4/S5).",
+   "The spec does not say whether LOW_BATTERY rejects the startActivityByTypeV2 Promise or resolves it (F3-D15 only mentions onActivityError 2). The TSDoc stays neutral; S5 decides and S6b documents.",
+   "S6b: the components (TechnosNativeChronometer/Map/MapStyles/ActionTimer) with TechnosNativeMapProps/TechnosNativeChronometerProps, exported from the root and the mock. The spec's mock-coverage test (activity.test.ts) does not check components.",
+   "S6b docs, DP side: extend DP-17/DP-78 to the 8 phase 3 methods that were void and to the observed() on checkIosBackgroundLocationPermission; add the Android NOT_SUPPORTED to DP-18; DP-73 gains the value exports including ActionType.",
+   "Still pending in DP-73 for the phase 4 adapter: running-plan types (ActionContent, RunningPlan, RunningPlanUpdateEvent), the history types TechnosActivityMonitorHistoryDay and TechnosCalorieHistoryDay (the Condor imports them; they are not in phase 3), the deep import path, TechnosWatchFaceTransferEventStatus, TechnosFirmwareUpgradeStatus, TechnosTileType and technosAssets.",
+   "S6b docs, api-js side: the 9 methods, the 10 events, TechnosCore.activityTypes, the value exports (TechnosActivityV2Status, TechnosActivityOrigin, TechnosActivityErrorCode, PlanType, ActionType), LOW_BATTERY in the errorCodes table, and deletedCategory taking effect for 1, 2 and 4.",
+   "activity.test.ts reads src/specs/NativeCoreNext.ts as text and expects each emitter as 'readonly X: CodegenTypes.EventEmitter', in the same order as technosEventNames. Whoever edits the spec (S0h) has to keep that pattern.",
+   "Repo 1 (the HealthHistoryMapper and EventMapper in :bridge) should emit stressValues: null only for models outside the CRP family; the JS type allows null.",
+   "While I worked, Repo 1 (/Users/joao.farias/technos-watch-protocol) had uncommitted changes from another agent (CrpCommand.kt, Models.kt, WatchActions.kt, ...). I did not touch Repo 1.",
+   "Scratchpad artifacts (not in any repo): /private/tmp/claude-502/-Users-joao-farias-GTE-Mormaii/ae4c00f2-34b0-4c1a-b929-4ce810ea855c/scratchpad/s6a/typecmp/check.ts (type comparison against v4.3.57) and /private/tmp/claude-502/-Users-joao-farias-GTE-Mormaii/ae4c00f2-34b0-4c1a-b929-4ce810ea855c/scratchpad/s6a/activityTypes.json (the 171 entries extracted from v4.3.57)."
+  ],
+  "deviations": [
+   {
+    "title": "The 8 phase 3 commands return a Promise instead of void",
+    "production": "getHistoryHeartRate/Stress/SpO2/ActivityV2, startActivityByTypeV2, pauseActivityV2, resumeActivityV2 and stopActivityV2 are void and fail silently (TechnosWareCore v4.3.57 src/NativeModules/specs/NativeCore.ts:29-41, 72; index.ts:356-417, 562-564)",
+    "coreNext": "All return Promise<void> wrapped in observed(): rejections still reach callers that await, are reported in onError, and a call without await raises no unhandled-rejection warning",
+    "reason": "Repo 2 rule (Promise with rejection) plus D6; the Condor calls them all without await (condor:services/Smartwatch.ts:113-160, 258-260)",
+    "coveredBySpecDp": "No. It is not among DP-102..134; it extends DP-17 (void to Promise) and DP-78 (observed), as F3-D24 decides."
+   },
+   {
+    "title": "checkIosBackgroundLocationPermission on Android rejects NOT_SUPPORTED",
+    "production": "Android rejects with code \"-1\" and the message 'Feature available only on iOS.' (NativeCoreModule.kt:915-917 at v4.3.57)",
+    "coreNext": "The JS contract and TSDoc say it rejects NOT_SUPPORTED, also reported in onError; the Promise is observed. The native side (CoreBridge) still has to do this.",
+    "reason": "F3-D26 and the Repo 2 error codes",
+    "coveredBySpecDp": "Not among DP-102..134; the spec lists it as an update to DP-18"
+   },
+   {
+    "title": "Activity enums exported as values from the package root",
+    "production": "The root re-exports TechnosActivityV2Status, TechnosActivityOrigin and TechnosActivityErrorCode only as types (type/eventData/index.ts:1-16 uses export type); the Condor gets TechnosActivityV2Status as a value through the deep import path (condor:mappers/entities/activity.ts:9)",
+    "coreNext": "Exported as values from the root and from the mock, alongside PlanType and ActionType",
+    "reason": "F3-D24: the Condor uses them at runtime; the deep path stays for the phase 4 adapter",
+    "coveredBySpecDp": "Not among DP-102..134; it is the DP-73 update the spec plans"
+   },
+   {
+    "title": "stressValues also accepts null",
+    "production": "stressValues?: number[] (type/eventData/stress.ts:20, 28)",
+    "coreNext": "stressValues?: number[] | null (null only for models outside the CRP family, per F3-D9)",
+    "reason": "Follows the spec's payload format; the Condor already handles it (item?.stressValues ?? null in condor:mappers/entities/stress.ts:21)",
+    "coveredBySpecDp": "No. The spec lists 'stressValues only on CRP' as 'checked, not a deviation'; widening the type is not listed anywhere."
+   },
+   {
+    "title": "stopActivityV2 without an argument sends {}",
+    "production": "The wrapper passes undefined to the native side (index.ts:377-379)",
+    "coreNext": "The wrapper sends finishActivityOptions ?? {}",
+    "reason": "F3-D24 and the platform section: the iOS shim does not filter out null options",
+    "coveredBySpecDp": "No. The app sees no difference."
+   },
+   {
+    "title": "TechnosExerciseGoalTypes exported as a type from the root",
+    "production": "The root does not export it at all (type/index.ts does not re-export exerciseGoals.ts)",
+    "coreNext": "Exported as a type only; the literal copies of TechnosUserExerciseGoal and TechnosActivityGoalData need it",
+    "reason": "Required for the literal copy of the Core's types; it adds a type and changes nothing at runtime",
+    "coveredBySpecDp": "No (it only adds a type)"
+   }
+  ]
+ },
+ "s0h": {
+  "status": "green",
+  "summary": "S0h is finished in Repo 2 (/Users/joao.farias/react-native-technos-core-next), built on the Repo 1 0.1.0 that S0 published. Every gate passed, and nothing is committed.\n\nThe TS spec (src/specs/NativeCoreNext.ts) already matched spec.api: 9 methods with the exact signatures and 10 EventEmitters. I left it unchanged.\n\n**Android**\n- **Module:** `NativeCoreNextModule` has the 9 overrides, each calling the CoreBridge method of the same name with a `PromiseCompletion`. The start and stop options go through `ReadableConverter.toMap`. The `emit` switch now covers all 27 spec events, including the 10 from phase 3, and an unknown name still throws.\n- **Host stubs (`AndroidCoreHost`):**\n  - `startActivityWork`/`stopActivityWork` only write an INFO log line.\n  - Preferences are kept in memory (a `ConcurrentHashMap`; `null` deletes the key).\n  - `locationAuthorization()` returns `null`, so the CoreBridge rejects with NOT_SUPPORTED and sends `onError`, as F3-D26 says.\n- **Store stubs (`FileSampleStore`):**\n  - `loadMeasurements` and `loadWorkouts` return an empty list and log at DEBUG.\n  - `saveMeasurements` and `saveWorkouts` write nothing and log at DEBUG.\n  - Confirmed keys for the new kinds already go to `confirmed-<kind>.json` through the existing code, and `clear` deletes them.\n- **Tests:**\n  - New `NativeCoreNextEmitRoutingTest` (3 tests). It checks the spec's 27 events against the `emitOnX` methods the codegen generated (read by reflection on `NativeCoreNextSpec`) and against the module's `when` branches (read from the source). Each branch must call its own emitter, the 10 phase-3 events must be routed, and an unknown name must throw.\n  - One new test in `FileSampleStoreTest` for the stub behavior.\n  - The `NoopHost` in `DeletedSavedDataEquivalenceTest` gained the 5 new `CoreHost` methods; without them the test sources did not compile.\n\n**iOS**\n- **Shim (`RCTNativeCoreNext.mm`):** has the 9 methods with the selectors from the published header, and `emitName:payload:` has the 10 new branches (27 in total).\n- **Host stubs (`IosCoreHost`):** activity work only logs INFO, preferences are kept in memory behind an `NSLock`, and `locationAuthorization()` returns \"denied\".\n- **Store stubs (`FileSampleStore.swift`):** same behavior as Android.\n- **Tests:**\n  - `TurboModuleSourceTests` updated: 56 methods, 24 nil checks, 27 events, plus a new test for the phase-3 methods and events. Its event-name regexes did not accept digits (`onHistorySpo2`, `...V2`), so I fixed them.\n  - Two new tests in `StoreAndLogTests` for the store and host stubs.\n\n**Docs:** I only fixed the counts this change made wrong and added one-line stub notes to the folder READMEs. These are ios/CoreNext/turbomodule, ios/README, ios/Tests/README, ios/CoreNext/README, ios/CoreNext/store/README, android/.../corenext/README and android/.../store/README.\n\n**Housekeeping:**\n- `ios/scripts/sync-xcframework.sh` re-copied the framework into ios/Frameworks, which is not versioned (Repo 1 a5c8aa5 plus uncommitted changes).\n- `pod install` removed the empty `inputPaths`/`outputPaths` arrays from example/ios/CoreNextExample.xcodeproj/project.pbxproj, which is CocoaPods noise. I undid it with a reverse `patch` after the builds, so example/ios is clean.",
+  "specDeviations": [
+   "iOS shim: spec.platform (iOS) says 'O shim não barra opções nulas, porque o wrapper JS já manda {}'. I added CNRejectNil(options) to startActivityByTypeV2 and stopActivityV2 anyway. Reason: the wrapper sends {} only for stopActivityV2. A null passed to startActivityByTypeV2, or a direct native call, would hand nil to the non-null Kotlin parameter and crash the process (DP-100, confirmed in the simulator in phase 2). TurboModuleSourceTests also requires every object argument to be nil-checked. The DP-100 text ('19 métodos') now needs to say 21.",
+   "The Android emit-routing test does not call emit. NativeCoreNextModule cannot be built on the JVM: emitOnX calls a CxxCallbackImpl, and WritableConverter needs RN's native maps. So the test reads the module's `when` branches from the source and checks them against the emitOnX methods the codegen generated (reflection on NativeCoreNextSpec) and the spec's EventEmitters. This mirrors the iOS TurboModuleSourceTests.",
+   "Tests beyond the S0h list: FileSampleStoreTest gained a phase-3 stub test, and StoreAndLogTests gained two (store stubs; host preferences, locationAuthorization and activity work). The TurboModuleSourceTests counts went 47→56, 22→24, 17→27, with a new phase-3 test. Its event regexes did not accept digits, which would have silently missed onHistorySpo2/...V2, so I fixed them. DeletedSavedDataEquivalenceTest.NoopHost gained the 5 CoreHost methods so the Android test sources compile.",
+   "I edited folder READMEs that are not in the S0h file list, to fix counts this change made wrong and to add one-line stub notes. Per spec.docs, docs/api-js.md, docs/desvios-de-producao.md, docs/arquitetura.md and the full store/test README rewrites stay with the later slices.",
+   "Android activity work logs at INFO, like the iOS rule in spec.platform. S0h only says 'atividade só log'."
+  ],
+  "openPoints": [
+   "Repo 2 CLAUDE.md says a spec change must update docs/api-js.md in the same change. That is still pending: the 9 methods, the 10 events, and the iOS nil-options rejection. S6b owns it.",
+   "docs/desvios-de-producao.md: DP-100 says the shim nil-checks '19 métodos' and should now say 21 (startActivityByTypeV2 and stopActivityV2 options). DP-99 should mention the two new ReadableMap params. DP-18 needs the Android NOT_SUPPORTED of checkIosBackgroundLocationPermission (production: '-1').",
+   "When S7/S8 replace the stubs, these tests must be replaced too, because they encode the stub behavior: FileSampleStoreTest.phase3MeasurementsAndWorkoutsAreStubsThatLoadEmptyAndWriteNothing, StoreAndLogTests.testPhase3MeasurementsAndWorkoutsAreStubsThatLoadEmptyAndWriteNothing and StoreAndLogTests.testPhase3HostStubsKeepPreferencesInMemoryAndAnswerDenied. Remove the stub notes from the READMEs and KDoc at the same time.",
+   "S8: IosCoreHost.locationAuthorization() still returns the constant IosCoreHost.locationDenied. The real CLLocationManager().authorizationStatus mapping and CoreLocation in the podspec are pending. S7/S8: PreferencesStore and the real measurement/workout JSON files (measurements-heart_rate.json, measurements-stress.json, workouts.json).",
+   "S7: AndroidCoreHost.startActivityWork/stopActivityWork are still log-only. The SyncForegroundService reason ACTIVITY (ForegroundReasons) is pending.",
+   "NativeCoreNextEmitRoutingTest parses branches shaped `\"onX\" -> emitOnX(map)` in NativeCoreNextModule.emit. Anyone who reshapes that `when` must update the regex. It finds the repo root by walking up to src/specs/NativeCoreNext.ts.",
+   "Every `pod install` on this machine removes the empty inputPaths/outputPaths arrays from example/ios/CoreNextExample.xcodeproj/project.pbxproj (CocoaPods version noise). I reverted it here; whoever runs pod install next will see it again.",
+   "While I worked, Repo 1 still had uncommitted changes from S0 or another agent. I did not touch Repo 1 and did not republish (F3-D33). ios/Frameworks/VERSION.txt now records a5c8aa5 with uncommitted changes."
+  ],
+  "deviations": [
+   {
+    "title": "Heart-rate, stress and workout histories always empty on the P85 (fallback stub)",
+    "production": "The Core reads FC/stress/workouts from the watch through the CRP SDK and its local DB and emits them (CRPService.java:422-479, 1581-1634; CRPService.m:310-348, 1545-1606).",
+    "coreNext": "getHistoryHeartRate/Stress/ActivityV2 always emit an empty list before resolve (CoreBridge S0). Both FileSampleStores drop measurements and workouts: load returns empty, save writes nothing, DEBUG log.",
+    "reason": "Fallback for slices S0/S0h, valid for any answer to the user questions. The real reading and persistence come in S1-S4 and S7/S8.",
+    "coveredBySpecDp": "No. DP-110 covers only fitGPS/Life Ultra GPS. This is the temporary S0 stub state; under the cutLine it becomes a DP only if cut (d) is applied."
+   },
+   {
+    "title": "App-started activity always fails with onActivityError -1 (fallback stub)",
+    "production": "startActivityByTypeV2 on the P85 sends 68 [type], and the echo starts the activity (CRPActivityManagerV2.java:85-119; CRPActivityManagerV2.m:55-77).",
+    "coreNext": "onActivityError {errorCode: -1}, then resolve, with no traffic. pause/resume/stop resolve with no traffic. Activity work in both hosts is only an INFO log line, so the Android activity foreground service does not exist yet.",
+    "reason": "S0/S0h fallback. ActivityController (S5) and ForegroundReasons (S7) come later.",
+    "coveredBySpecDp": "No. DP-111 covers only SMA/iDO. DP-129 describes the final foreground-service design. This is temporary unless cut (c) is applied."
+   },
+   {
+    "title": "iOS checkIosBackgroundLocationPermission always resolves \"denied\" (stub)",
+    "production": "Reads CLLocationManager: 'granted' only with authorizedAlways (NativeCoreManager.m:139-153; RCTNativeCore.mm:668-672).",
+    "coreNext": "IosCoreHost.locationAuthorization() always returns \"denied\", even with 'Always' authorization.",
+    "reason": "S0h stub. Spec.platform puts the CLLocationManager reading and CoreLocation in the podspec in S8.",
+    "coveredBySpecDp": "No (temporary). F3-D26 describes the final behavior."
+   },
+   {
+    "title": "Android checkIosBackgroundLocationPermission rejects NOT_SUPPORTED with onError",
+    "production": "promise.reject(\"-1\", \"Feature available only on iOS.\") with no onError (NativeCoreModule.kt:915-917).",
+    "coreNext": "AndroidCoreHost.locationAuthorization() returns null, and the CoreBridge (S0) sends onError, then rejects NOT_SUPPORTED.",
+    "reason": "F3-D26: error codes come from the common catalog. The Condor only calls this on iOS.",
+    "coveredBySpecDp": "Not in DP-102..134. It is the planned update to DP-18 (spec 'Atualizações de entradas existentes')."
+   },
+   {
+    "title": "userProfile preference kept only in memory (stub)",
+    "production": "Android persisted the user profile; iOS did not (spec note on DP-72).",
+    "coreNext": "loadPreference/savePreference keep values in memory in both hosts and lose them when the process dies. The S0 CoreBridge does not call savePreference yet (F3-D12 is S4/S5), so nothing changes for the app today.",
+    "reason": "S0h stub. PreferencesStore (SharedPreferences 'corenext.prefs' / UserDefaults) comes in S7/S8.",
+    "coveredBySpecDp": "No (pre-existing DP-72, outside 102..134; the spec resolves it once persistence is real)."
+   },
+   {
+    "title": "iOS shim rejects nil activity options with INVALID_ARGUMENT",
+    "production": "RCTNativeCore.mm:455-457 and :170-172 pass the dictionary (nil included) straight to sdkService.startActivityByTypeV2 / stopActivityV2. What happens with nil was not checked.",
+    "coreNext": "CNRejectNil(options) rejects INVALID_ARGUMENT ('options must not be null'), with an INFO log line and no onError, before the CoreBridge. On Android, a null ReadableMap fails Kotlin's parameter check, and RN rejects with no code.",
+    "reason": "Without the check, a nil reaches the Kotlin framework as an uncaught NullPointerException and kills the process (DP-100).",
+    "coveredBySpecDp": "No. It extends DP-100 (iOS) and DP-99 (Android), outside 102..134."
+   }
+  ]
+ },
+ "findings": [
+  {
+   "file": "/Users/joao.farias/react-native-technos-core-next/src/index.ts",
+   "line": 592,
+   "issue": "The phase-3 fallback is missing the Core components. The cutLine GARANTIA says S0+S0h deliver them (\"... e os componentes existem\"), and spec.api puts them in src/index.ts. TechnosNativeChronometer, TechnosNativeMap, TechnosMapStyles and TechnosNativeActionTimer are not in Repo 2: src/components/ does not exist, and neither the root nor the mock exports them. The types TechnosNativeMapProps and TechnosNativeChronometerProps, which spec.api also lists, are missing too. The Condor imports all four components as runtime values, and two of its modules wrap them in styled() at import time. With the Repo 2 package, the Condor's componentsV2 barrel would throw on import, so the app would not start in phase 4, even with the activity left as a stub.",
+   "evidence": "spec.json cutLine GARANTIA ends with '...compilam com os métodos novos em stub, e os componentes existem.' In Repo 2, `ls src/components` gives 'No such file or directory', and the export block at src/index.ts:592-605 has no component. In the Condor (release/2.5.0), `componentsV2/Maps/MormaiiNativeMap/styles.ts:4` does `styled(TechnosNativeMap)` and `componentsV2/Activities/ActivityInfo/styles.ts:12` does `styled(TechnosNativeChronometer)`, both at module scope. `componentsV2/index.ts:74,147` re-exports ActivityInfo and CondorNativeMap, and 135 files import that barrel. The other users are ActivityWithMap/styles.ts:216 and RunningSportActivity/index.tsx:32 (ActionTimer and Chronometer). The styled-components native build the Condor ships (6.1.19) throws when given a missing component: `if(void 0===r&&(r=f),!t)throw v(1,t)` in native/dist/styled-components.native.cjs.js, which is 'Cannot create styled-component for component: undefined'. decisoes-usuario.md also says the Condor needs 'métodos, eventos, enums e componentes' to exist for phase 4. workSlices assign the components to S6b, which this workflow did not run.",
+   "severity": "high",
+   "fix": "Before phase 4, deliver at least S6b's component stubs, based on core@v4.3.57 src/NativeComponents:\n- TechnosNativeChronometer: a Text that accepts the Core props.\n- TechnosNativeMap: a View that accepts TechnosNativeMapProps (extends ViewProps; mapMode, mapStyle, mapPadding, foundDeviceList, selectedFoundDevice, zoom, locationData).\n- TechnosMapStyles enum: MORMAII='mormaii', TOUCH='touch', TECHNOS='technos', CONDOR='condor'.\n- TechnosNativeActionTimer: shows 00:00.\nExport all of them, plus TechnosNativeMapProps and TechnosNativeChronometerProps, from src/index.ts and from the mock. Add one Jest test that styled(X) works for each. Alternatively, remove 'e os componentes existem' from the GARANTIA and block the phase 4 swap on S6b explicitly.",
+   "lens": "contrato"
+  },
+  {
+   "file": "/Users/joao.farias/technos-watch-protocol/protocol/src/commonMain/kotlin/br/com/grupotechnos/watch/protocol/crp/CrpWorkoutReader.kt",
+   "line": 34,
+   "issue": "Two sources disagree on which group owns an unsolicited B2 01, which will collide when S2a and S2b run in parallel. spec.api and the S2b scope give the 'B2 01 sem pedido' hook to CrpActivityControl (S2b). S0 assigned it to CrpWorkoutReader (S2a) in its KDoc, in the crp README and in its hand-off. CrpDriver.handleFrame consults workouts before activity. If each slice follows its own source, S2a's onUnsolicited claims B2 01 first, and S2b's branch in CrpActivityControl becomes dead code. Any S2b test expecting its own handling would then fail at integration.",
+   "evidence": "spec.api lists 'CrpActivityControl (perform das 5 ações; memória dos 68 escritos com instante; gancho do RX 68 e do B2 01 sem pedido; ...)'. The S2b scope says 'gancho do RX 68 (...) e do B2 01 sem pedido', and its simulator list includes 'B2 01 no fim'. S0 wrote 'Um `B2 01` sem pedido (...) é o candidato' in CrpWorkoutReader.kt:13 and :34, gave the same row in crp/README.md:29, and its report says 'S2a: CrpWorkoutReader.onUnsolicited is the B2 01 hook'. CrpActivityControl.kt:15/:29-32 only names the RX 68. CrpDriver.kt handleFrame calls `health.onUnsolicited(frame) || workouts.onUnsolicited(frame) || activity.onUnsolicited(frame)`.",
+   "severity": "low",
+   "fix": "Choose one owner before S2a and S2b start. To follow spec.api, move the 'B2 01 sem pedido' candidate note from CrpWorkoutReader.kt:13/:34 and crp/README.md:29 to the onUnsolicited KDoc of CrpActivityControl.kt, and correct the S0 hand-off note. Otherwise, amend spec.api and S2b so that S2a owns it. Either way, only one group's onUnsolicited may return true for B2 01.",
+   "lens": "contrato"
+  },
+  {
+   "file": "/Users/joao.farias/technos-watch-protocol/protocol/src/commonMain/kotlin/br/com/grupotechnos/watch/protocol/session/WatchSession.kt",
+   "line": 259,
+   "issue": "The public KDoc of WatchSession.confirmUploaded says it accepts hour keys (yyyy-MM-ddTHH) for HEART_RATE/STRESS and epoch-second keys for WORKOUTS. The code still accepts only day keys, so both formats are dropped today. Hosts and slice authors (S7, S8, S5's forceStop key) reading the published API docs would expect confirmations that never happen.",
+   "evidence": "WatchSession.kt:259-263: '@param dayKeys chaves no formato do tipo: o dia `yyyy-MM-dd` em `STEPS` e `SLEEP`, a hora local `yyyy-MM-ddTHH` em `HEART_RATE` e `STRESS` e o segundo epoch do início em `WORKOUTS`'. HistoryStore.kt:125-131 does `dayKeys.filter { isDayKey(it) }`, and TimeFormat.parseDayKey requires the DAY_KEY regex. So confirmUploaded(HEART_RATE, [\"2026-11-02T12\"]) only logs WARN 'ignored invalid day keys' and confirms nothing. S0 itself lists this as pending for S3.",
+   "severity": "low",
+   "fix": "Either land S3's per-kind validation in HistoryStore.confirm (and the per-kind prune) before any host or the CoreBridge sends hour or epoch keys, or add a note to the KDoc that hour and epoch keys are only accepted from S3 on and are dropped with a WARN today.",
+   "lens": "contrato"
+  },
+  {
+   "file": "/Users/joao.farias/react-native-technos-core-next/src/index.ts",
+   "line": 448,
+   "issue": "The JS-facing TSDoc and constant comments describe the final S4/S5 behavior, not what the current native side does. The Repo 1 CoreBridge KDoc says plainly that these methods are still the fallback stub ('Por enquanto são a versão de reserva'). The spec and wrapper TSDoc give no such warning: they promise real histories, a real start/pause/stop with onActivityStartedV2 and rejections, a sync that reads heart rate, stress and workouts, and deletedSavedData categories 1/2/4 that take effect. A phase 4 integrator reading the API would expect events and rejections that never come. If cut (c) holds (decisoes-usuario.md defers the app-started activity), the activity TSDoc would stay wrong for good.",
+   "evidence": "src/index.ts:448-461 says startActivityByTypeV2 'Resolve depois das escritas; o início confirmado... sai em onActivityStartedV2', with rejections NOT_READY/NOT_SUPPORTED/INVALID_ARGUMENT. src/specs/NativeCoreNext.ts:129-143 says the same, and pause emits status 4. src/index.ts:185 says syncDataHistory reads 'no Condor Reebok também frequência cardíaca, estresse e treinos'. src/index.ts:212 describes getHistoryHeartRate as stored hours. src/constants.ts:36-38 says HEART_HERT/STRESS/ACTIVITY 'Têm efeito', and :15-17 describes disconnectOnActivity being emitted. In the code, CoreBridge.kt:824-828 always does emitTransient(onActivityError -1) followed by resolve. CoreBridge.kt:508 does syncHistory(listOf(STEPS, SLEEP)). deletedSavedData (CoreBridge.kt:744-765) logs WARN 'Ignoring category N' for 1/2/4, because SavedDataMapper is unchanged. CoreBridge.kt:91-96 carries the 'Por enquanto' note.",
+   "severity": "low",
+   "fix": "Add a one-line current-state note to the TSDoc of the 9 methods, syncDataHistory, and the deletedCategory and deviceConnectStates comments, mirroring the CoreBridge KDoc. Example: 'Hoje (fase 3 em andamento): emite lista vazia / onActivityError -1 e resolve'. Alternatively, keep the TSDoc neutral until S4/S5 land. If cut (c) is confirmed, rewrite the startActivityByTypeV2/pause/resume/stop TSDoc to describe the stub.",
+   "lens": "contrato"
+  },
+  {
+   "file": "/private/tmp/claude-502/-Users-joao-farias-GTE-Mormaii/ae4c00f2-34b0-4c1a-b929-4ce810ea855c/scratchpad/fase3/spec.json",
+   "line": 308,
+   "issue": "The production baseline has moved, and part of DP-118's 'Produção' text is now stale. The Condor's release branch moved its Core pin from v4.3.57 to v4.4.5 at 00:55 today, after the spec was written. The phase-3 JS contract is identical in both tags, so S6a's copies stay exact. But v4.4.5 fixed the iOS divide-by-zero that DP-118 describes as production behavior, so S6b would write an incorrect deviation entry if it follows the spec text.",
+   "evidence": "GTE-CondorSmart package.json:105 on release/2.5.0 reads 'TechnosWareCore#v4.4.5' (commit 7845bd7, 2026-11-03 00:55, 'chore: bump version core 4.4.5'). Before it, 7845bd7^ pinned v4.3.57. `git diff v4.3.57 v4.4.5 -- src/ index.ts` only adds startPairingAttempt and cancelPairing, so the 9 methods, 10 events, types, enums and activityTypes are unchanged. But core@v4.4.5 ios/crpBluetooth/ActivityManager/CRPActivityHelper.m:108-109 adds `if (hrItemsCount == 0) return 0;`, so calculateAverageBpm no longer divides by zero. DP-118 (spec.json:308) still says 'no iOS, calculateAverageBpm divide por zero'. The `count < 0` guard (line 86) still never applies.",
+   "severity": "low",
+   "fix": "In S6b, check each production claim against core@v4.4.5, the Condor's current pin, as well as v4.3.57. Rewrite DP-118's iOS 'Produção' to drop the divide-by-zero, keeping the dead `count < 0` guard and the empty-list vo2Max path. Update the 'Condor pins v4.3.57' baseline note. No JS change is needed.",
+   "lens": "contrato"
+  },
+  {
+   "file": "/Users/joao.farias/technos-watch-protocol/docs/arquitetura.md",
+   "line": 429,
+   "issue": "The 'CoreHost por plataforma' table describes its Android column as the current AndroidCoreHost of Repo 2, but the new phase-3 rows give the target behavior instead. For startActivityWork/stopActivityWork it lists the SyncForegroundService with the activity reason, and for loadPreference/savePreference it lists SharedPreferences 'corenext.prefs'. The S0h host only writes a log line and keeps preferences in a ConcurrentHashMap that is lost when the process dies. The iOS column is labelled 'planejado', so the iOS cells are fine.",
+   "evidence": "The table header (docs/arquitetura.md around lines 413-415) reads 'Android (AndroidCoreHost) | iOS (planejado)', and the text says 'A coluna do Android é o AndroidCoreHost do Repo 2'. Rows 429-430 contradict /Users/joao.farias/react-native-technos-core-next/android/src/main/java/br/com/grupotechnos/corenext/AndroidCoreHost.kt:144-162: `private val preferences = ConcurrentHashMap<String, String>()`, and startActivityWork/stopActivityWork only call logger.log(INFO, ... '(stub)').",
+   "severity": "low",
+   "fix": "Until S7 lands, mark the Android cells of rows 429-430 as the S0h stub ('só log' and 'preferências em memória'), with the SyncForegroundService motive and the PreferencesStore on SharedPreferences listed as planned for S7. Alternatively, move the target behavior into a 'planejado' note, as the iOS column does.",
+   "lens": "engenharia"
+  },
+  {
+   "file": "/Users/joao.farias/react-native-technos-core-next/src/constants.ts",
+   "line": 15,
+   "issue": "Three pieces of JS-facing documentation describe native behavior the current code does not have. The deviceConnectStates comment (lines 15-17) says the module emits disconnectOnActivity during an app-started activity. The deletedCategory comment (lines 36-38) says HEART_HERT, STRESS and ACTIVITY take effect. The syncDataHistory TSDoc in src/index.ts:185 says the Condor sync also reads heart rate, stress and workouts. No spec decision asks for the deviceConnectStates rewording (F3-D24 only covers deletedCategory). Under the user's 01:30 decision (scratchpad fase3/decisoes-usuario.md: app-started activity is deferred), state 3 will not be emitted in phase 4 at all.",
+   "evidence": "/Users/joao.farias/technos-watch-protocol/bridge/src/commonMain/kotlin/br/com/grupotechnos/watch/bridge/StateMapper.kt:12 says 'Os códigos -2 (DFU) e 3 (desconectado em atividade) não são produzidos nesta PoC'. SavedDataMapper.kt:27-31 maps only category 5 to STEPS and 0 to SLEEP; any other category returns null, so CoreBridge.kt:750-753 logs WARN 'Ignoring category N' for 1, 2 and 4. CoreBridge.kt:507-509 calls syncHistory with only listOf(DataKind.STEPS, DataKind.SLEEP).",
+   "severity": "low",
+   "fix": "Until S3/S4 land, state the current fallback in these comments: categories 1, 2 and 4 are still ignored with a WARN, state 3 is not produced, and syncDataHistory reads only steps and sleep. Keep the final wording for S6b. If app-started activity stays out of scope, restore 'disconnectOnActivity existe por compatibilidade' in deviceConnectStates.",
+   "lens": "engenharia"
+  }
+ ],
+ "fix": {
+  "status": "green",
+  "applied": [
+   "Finding 1 (components, high): applied. The evidence holds. `ls src/components` failed with no such directory, and neither the root nor the mock exported any component. The Condor on release/2.5.0 calls `styled(TechnosNativeMap)` in componentsV2/Maps/MormaiiNativeMap/styles.ts:4 and `styled(TechnosNativeChronometer)` in componentsV2/Activities/ActivityInfo/styles.ts:12 and screensV2/activity/ActivityAction/ActivityWithMap/styles.ts:216, all at module scope, and the componentsV2 barrel re-exports both. The Condor's styled-components 6.1.19 native build contains `if(void 0===r&&(r=f),!t)throw v(1,t)`, which raises 'Cannot create styled-component for component', so importing the barrel would throw. Fix: new files in /Users/joao.farias/react-native-technos-core-next/src/components/: mapStyles.ts (TechnosMapStyles MORMAII/TOUCH/TECHNOS/CONDOR, as in core@v4.3.57), timerText.ts (text sizes from the Core's Android chronometer table), TechnosNativeChronometer.tsx (always shows '00:00:00', or '00:00' with hideHours), TechnosNativeActionTimer.tsx (always '00:00') and TechnosNativeMap.tsx (an empty View that drops the map props). All four take literal copies of the Core prop types. src/index.ts and src/__mocks__/react-native-technos-core-next.ts export them, plus the types TechnosNativeChronometerProps and TechnosNativeMapProps. Also added example/__tests__/components.test.tsx (6 tests) and updated src/README.md. example/tsconfig.json gained a 'react' paths entry, because src/ now imports react.",
+   "Finding 2 (owner of the unsolicited B2 01): applied. spec.api and the S2b scope give 'gancho do RX 68 e do B2 01 sem pedido' to CrpActivityControl. research.json shows that walk@179720 is the B2 01 the P85 pushes between the 68 FF and its echo when an app-started activity ends, so S0's wording 'fim de treino no relógio' was also wrong. Changes are KDoc and docs only; both onUnsolicited methods still return false. CrpWorkoutReader.kt: class KDoc and onUnsolicited now say the reader has no candidate. CrpActivityControl.kt: class KDoc and onUnsolicited now name the RX 68 and the unsolicited B2 01, which is only logged per F3-D10. Rows 29-30 of crp/README.md and the wording in testKit CrpSimulatorActivity.kt were updated to match.",
+   "Finding 3 (confirmUploaded KDoc): applied. HistoryStore.confirm filters with isDayKey and logs the WARN 'ignored invalid day keys'. Added a 'Por enquanto (fase 3 em andamento)' note to WatchSession.confirmUploaded saying that only yyyy-MM-dd keys are accepted for now. The same note went on four methods with the same stub problem: getMeasurements and getWorkouts (always empty), storeWorkout (only an INFO 'not kept' line) and fetchLastWorkout (NOT_SUPPORTED in every family, nothing kept). KDoc only.",
+   "Finding 4 (JS TSDoc describes final behavior): applied. Checked against CoreBridge.kt: startActivityByTypeV2 emits onActivityError -1 and then resolves; the histories emit empty lists; syncDataHistory passes [STEPS, SLEEP]; deletedSavedData logs 'Ignoring category N' for 1, 2 and 4. IosCoreHost always answers 'denied'. Added current-state notes in src/index.ts to syncDataHistory, getHistoryHeartRate, getHistoryStress, getHistoryActivityV2, startActivityByTypeV2, pauseActivityV2, resumeActivityV2, stopActivityV2 and checkIosBackgroundLocationPermission (iOS 'denied'), plus one interface-level note in src/specs/NativeCoreNext.ts. Comments only: the method and emitter lines that the Jest, Android and iOS spec parsers match are unchanged.",
+   "Finding 6 (docs/arquitetura.md CoreHost table): applied. AndroidCoreHost.kt keeps preferences in an in-memory ConcurrentHashMap, its activity work only logs, and CoreBridge never calls load/savePreference. In /Users/joao.farias/technos-watch-protocol/docs/arquitetura.md, the Android cells of the startActivityWork/stopActivityWork and loadPreference/savePreference rows now read 'por enquanto ... (stub); planejado: ...'. The preferences row's 'Quando o CoreBridge chama' cell now says the bridge does not call these yet.",
+   "Finding 7 (constants.ts comments): applied; the syncDataHistory part is covered under finding 4. StateMapper.kt:12 never produces state 3, and SavedDataMapper.kindForCategory maps only categories 5 and 0. src/constants.ts: deviceConnectStates now says disconnectOnActivity is not emitted yet. deletedCategory says that, for now, only PEDOMETER and SLEEP take effect; HEART_HERT, STRESS and ACTIVITY are ignored with a WARN. The same kind of note went on LOW_BATTERY (not emitted yet) and on the phase 3 case of CANCELLED. I kept the final wording and added the note, rather than restoring 'existe por compatibilidade', because the cut decision is not final."
+  ],
+  "rejected": [
+   "Finding 5 (DP-118 / v4.4.5 baseline): the evidence is real but there is nothing to change in the two repos, so I applied nothing. Confirmed: GTE-CondorSmart release/2.5.0 has pinned TechnosWareCore#v4.4.5 since commit 7845bd7 (2026-11-03 00:55; the parent commit pinned v4.3.57). `git diff v4.3.57 v4.4.5 -- src/ index.ts` only adds startPairingAttempt and cancelPairing, and the Condor calls neither. core@v4.4.5 CRPActivityHelper.m adds `if (hrItemsCount == 0) return 0;`. The DP-118 text exists only in spec.json, which is read-only for this workflow; `grep DP-118|calculateAverageBpm` finds nothing in either repo's docs. The DP documentation pass belongs to S6b, so this is listed under open points."
+  ],
+  "gateResults": [
+   {
+    "command": "Repo 1: ./gradlew check dokkaHtml",
+    "result": "BUILD SUCCESSFUL in 2m 24s. Every test task ran. :protocol: jvmTest 525, testDebugUnitTest 509, testReleaseUnitTest 509, iosSimulatorArm64Test 519. :bridge: 221/216/216/229. 0 failures, 0 errors. GOLDEN output: condorreebok-phase2 162 lines, 52 TX all in PHASE2_VECTORS; fitgps 99 lines, TX 167/167. REPLAY lines present for the real CRP and iDO fixtures on iOS. checkObjcHeader, checkSwiftInterop and checkObjcInterop were UP-TO-DATE: the header did not change, because KDoc is not exported to it. dokkaHtml passed for both modules (it fails on warnings)."
+   },
+   {
+    "command": "Repo 1: ./gradlew publishToMavenLocal assembleTechnosWatchProtocolXCFramework",
+    "result": "BUILD SUCCESSFUL in 1m 30s. br.com.grupotechnos.watch:{protocol,bridge}:0.1.0 republished at 02:12; XCFrameworks written to bridge/build/XCFrameworks/{debug,release}."
+   },
+   {
+    "command": "Repo 2: ios/scripts/sync-xcframework.sh",
+    "result": "Copied the release build from a5c8aa5 with uncommitted changes. ios/Frameworks is git-ignored."
+   },
+   {
+    "command": "Repo 2: cd example/ios && pod install",
+    "result": "exit 0, 74 pods. It again stripped the empty inputPaths/outputPaths arrays from example/ios/CoreNextExample.xcodeproj/project.pbxproj (CocoaPods noise). I saved that diff and reverted it with patch -R, so example/ios is clean."
+   },
+   {
+    "command": "Repo 2: cd example/android && ./gradlew --refresh-dependencies :react-native-technos-core-next:testDebugUnitTest :app:assembleDebug",
+    "result": "BUILD SUCCESSFUL in 58s. 12 suites, 66 tests, 0 failures, 0 errors. app-debug.apk built at 02:15."
+   },
+   {
+    "command": "Repo 2: ./gradlew :app:dependencies --configuration debugRuntimeClasspath | grep grupotechnos",
+    "result": "protocol, protocol-android, bridge and bridge-android 0.1.0 resolved from mavenLocal."
+   },
+   {
+    "command": "Repo 2: npm test (in example/ and at the root)",
+    "result": "PASS: 8 suites, 134 tests (128 before plus 6 in components.test.tsx)."
+   },
+   {
+    "command": "Repo 2: cd example && npx tsc --noEmit",
+    "result": "First run failed with exit 2: '../src/components/TechnosNativeActionTimer.tsx(1,19): error TS2307: Cannot find module 'react' or its corresponding type declarations.', and the same for TechnosNativeChronometer.tsx and TechnosNativeMap.tsx. Fixed by adding \"react\": [\"./node_modules/@types/react\"] to example/tsconfig.json paths, mirroring the root tsconfig. Final run: exit 0."
+   },
+   {
+    "command": "Repo 2: npm run typecheck (root)",
+    "result": "exit 0"
+   },
+   {
+    "command": "Repo 2: cd example && npx eslint .",
+    "result": "exit 0"
+   },
+   {
+    "command": "Repo 2: cd example && npx eslint --no-eslintrc --config .eslintrc.js --resolve-plugins-relative-to . ../src --ext .ts,.tsx",
+    "result": "exit 0; only the existing 'React version was set to detect' warning."
+   },
+   {
+    "command": "Repo 2: cd example && npx prettier --config .prettierrc.js --check \"../src/**/*.ts\" \"../src/**/*.tsx\" __tests__/components.test.tsx",
+    "result": "First run flagged ../src/components/TechnosNativeActionTimer.tsx (parameter list needed wrapping). Fixed; final run: 'All matched files use Prettier code style!'."
+   },
+   {
+    "command": "Repo 2: cd example && npx react-native bundle --platform android --dev false ... (output in the scratchpad)",
+    "result": "Bundle written. The component stubs are in it: '00:00:00', TechnosMapStyles, 'condor'."
+   },
+   {
+    "command": "Repo 2: cd ios && xcodebuild test -scheme TechnosCoreNext -destination platform=iOS Simulator,id=585526EE-D218-4733-8B2F-8429E02D8783",
+    "result": "TEST SUCCEEDED: 69 tests, 0 failures, IOS-REPLAY lines present."
+   },
+   {
+    "command": "Repo 2: example/ios xcodebuild -workspace CoreNextExample.xcworkspace -scheme CoreNextExample -configuration Debug -destination platform=iOS Simulator,id=585526EE-D218-4733-8B2F-8429E02D8783 build",
+    "result": "BUILD SUCCEEDED"
+   },
+   {
+    "command": "Repo 2: example/ios xcodebuild ... -configuration Release -sdk iphoneos -destination generic/platform=iOS CODE_SIGNING_ALLOWED=NO build",
+    "result": "BUILD SUCCEEDED (extra; not required by the task)"
+   }
+  ],
+  "filesChangedTotal": {
+   "repo1": [
+    "M bridge/build.gradle.kts",
+    "M bridge/objc-interop/MinimalTurboModule.mm",
+    "M bridge/objc-interop/README.md",
+    "M bridge/src/commonMain/kotlin/br/com/grupotechnos/watch/bridge/CoreBridge.kt",
+    "M bridge/src/commonMain/kotlin/br/com/grupotechnos/watch/bridge/CoreEventSink.kt",
+    "M bridge/src/commonMain/kotlin/br/com/grupotechnos/watch/bridge/CoreHost.kt",
+    "M bridge/src/commonMain/kotlin/br/com/grupotechnos/watch/bridge/README.md",
+    "M bridge/src/commonTest/kotlin/br/com/grupotechnos/watch/bridge/CoreBridgeTestKit.kt",
+    "M bridge/swift-interop/MinimalHost.swift",
+    "M bridge/swift-interop/README.md",
+    "M docs/arquitetura.md (this step: CoreHost table rows)",
+    "M protocol/src/commonMain/kotlin/br/com/grupotechnos/watch/protocol/crp/CrpCommand.kt",
+    "M protocol/src/commonMain/kotlin/br/com/grupotechnos/watch/protocol/crp/CrpDriver.kt",
+    "M protocol/src/commonMain/kotlin/br/com/grupotechnos/watch/protocol/crp/CrpExchange.kt",
+    "M protocol/src/commonMain/kotlin/br/com/grupotechnos/watch/protocol/crp/CrpInteractions.kt",
+    "M protocol/src/commonMain/kotlin/br/com/grupotechnos/watch/protocol/crp/README.md (this step: rows 29-30)",
+    "M protocol/src/commonMain/kotlin/br/com/grupotechnos/watch/protocol/domain/Models.kt",
+    "M protocol/src/commonMain/kotlin/br/com/grupotechnos/watch/protocol/domain/README.md",
+    "M protocol/src/commonMain/kotlin/br/com/grupotechnos/watch/protocol/domain/WatchActions.kt",
+    "M protocol/src/commonMain/kotlin/br/com/grupotechnos/watch/protocol/domain/WatchErrorCodes.kt",
+    "M protocol/src/commonMain/kotlin/br/com/grupotechnos/watch/protocol/domain/WatchEvents.kt",
+    "M protocol/src/commonMain/kotlin/br/com/grupotechnos/watch/protocol/driver/DeviceDriver.kt",
+    "M protocol/src/commonMain/kotlin/br/com/grupotechnos/watch/protocol/driver/README.md",
+    "M protocol/src/commonMain/kotlin/br/com/grupotechnos/watch/protocol/profile/DeviceProfile.kt",
+    "M protocol/src/commonMain/kotlin/br/com/grupotechnos/watch/protocol/profile/Profiles.kt",
+    "M protocol/src/commonMain/kotlin/br/com/grupotechnos/watch/protocol/profile/README.md",
+    "M protocol/src/commonMain/kotlin/br/com/grupotechnos/watch/protocol/session/README.md",
+    "M protocol/src/commonMain/kotlin/br/com/grupotechnos/watch/protocol/session/SampleStore.kt",
+    "M protocol/src/commonMain/kotlin/br/com/grupotechnos/watch/protocol/session/SessionCommand.kt",
+    "M protocol/src/commonMain/kotlin/br/com/grupotechnos/watch/protocol/session/SessionEngine.kt",
+    "M protocol/src/commonMain/kotlin/br/com/grupotechnos/watch/protocol/session/SyncEngine.kt",
+    "M protocol/src/commonMain/kotlin/br/com/grupotechnos/watch/protocol/session/WatchSession.kt (this step: KDoc notes)",
+    "M protocol/src/commonTest/kotlin/br/com/grupotechnos/watch/protocol/crp/CrpCommandCatalogTest.kt",
+    "M protocol/src/testKit/README.md",
+    "M protocol/src/testKit/kotlin/br/com/grupotechnos/watch/protocol/testing/CrpWatchSimulator.kt",
+    "?? bridge/src/commonMain/kotlin/br/com/grupotechnos/watch/bridge/ActivitySessionPort.kt",
+    "?? bridge/src/commonTest/kotlin/br/com/grupotechnos/watch/bridge/CoreBridgePhase3FallbackTest.kt",
+    "?? protocol/src/commonMain/kotlin/br/com/grupotechnos/watch/protocol/crp/CrpActivityControl.kt (this step: KDoc)",
+    "?? protocol/src/commonMain/kotlin/br/com/grupotechnos/watch/protocol/crp/CrpHealthReader.kt",
+    "?? protocol/src/commonMain/kotlin/br/com/grupotechnos/watch/protocol/crp/CrpWorkoutReader.kt (this step: KDoc)",
+    "?? protocol/src/commonTest/kotlin/br/com/grupotechnos/watch/protocol/session/Phase3SessionContractTest.kt",
+    "?? protocol/src/testKit/kotlin/br/com/grupotechnos/watch/protocol/testing/CrpSimulatorActivity.kt (this step: KDoc)",
+    "?? protocol/src/testKit/kotlin/br/com/grupotechnos/watch/protocol/testing/CrpSimulatorHealth.kt",
+    "?? protocol/src/testKit/kotlin/br/com/grupotechnos/watch/protocol/testing/CrpSimulatorWorkouts.kt"
+   ],
+   "repo2": [
+    "M android/src/main/java/br/com/grupotechnos/corenext/AndroidCoreHost.kt",
+    "M android/src/main/java/br/com/grupotechnos/corenext/NativeCoreNextModule.kt",
+    "M android/src/main/java/br/com/grupotechnos/corenext/README.md",
+    "M android/src/main/java/br/com/grupotechnos/corenext/store/FileSampleStore.kt",
+    "M android/src/main/java/br/com/grupotechnos/corenext/store/README.md",
+    "M android/src/test/java/br/com/grupotechnos/corenext/DeletedSavedDataEquivalenceTest.kt",
+    "M android/src/test/java/br/com/grupotechnos/corenext/store/FileSampleStoreTest.kt",
+    "M example/__tests__/wrapper.test.ts",
+    "M example/src/hooks/coreState.ts",
+    "M example/tsconfig.json (this step: react paths entry)",
+    "M ios/CoreNext/IosCoreHost.swift",
+    "M ios/CoreNext/README.md",
+    "M ios/CoreNext/store/FileSampleStore.swift",
+    "M ios/CoreNext/store/README.md",
+    "M ios/CoreNext/turbomodule/RCTNativeCoreNext.mm",
+    "M ios/CoreNext/turbomodule/README.md",
+    "M ios/README.md",
+    "M ios/Tests/README.md",
+    "M ios/Tests/TechnosCoreNextTests/StoreAndLogTests.swift",
+    "M ios/Tests/TechnosCoreNextTests/TurboModuleSourceTests.swift",
+    "M src/README.md (this step: components row, dependencies, invariant, test list)",
+    "M src/__mocks__/react-native-technos-core-next.ts (this step: component exports)",
+    "M src/constants.ts (this step: current-state notes)",
+    "M src/index.ts (this step: header, current-state TSDoc, component exports)",
+    "M src/specs/NativeCoreNext.ts (this step: interface-level note)",
+    "M src/types/compat.ts",
+    "M src/types/emitter.ts",
+    "M src/types/events.ts",
+    "M src/types/index.ts",
+    "?? android/src/test/java/br/com/grupotechnos/corenext/NativeCoreNextEmitRoutingTest.kt",
+    "?? example/__tests__/activity.test.ts",
+    "?? example/__tests__/components.test.tsx (this step)",
+    "?? src/activityEnums.ts",
+    "?? src/activityTypes.ts",
+    "?? src/components/ (this step: mapStyles.ts, timerText.ts, TechnosNativeChronometer.tsx, TechnosNativeActionTimer.tsx, TechnosNativeMap.tsx)",
+    "?? src/types/activity.ts"
+   ]
+  },
+  "openPoints": [
+   "Where I went beyond the spec: the workSlices put the components in S6b. I delivered them here because the cutLine GARANTIA says S0+S0h deliver 'os componentes existem', and decisoes-usuario.md says the Condor needs them to compile. All four are stubs. F3-D25 wants TechnosNativeChronometer to count from an activityClock over onActivityUpdateV2 and to use Gotham-Bold for 'condor'; both are left to S6b. While startActivityByTypeV2 stays the -1 stub, a working chronometer would show 00:00:00 anyway.",
+   "Also beyond the spec: example/tsconfig.json (not in any slice's file list) now has a 'react' paths entry, needed because src/components is the first code in src/ that imports react. Metro and Jest already resolved react from example/node_modules.",
+   "Also beyond the findings' scope: the fix for finding 3 also covers the getMeasurements, getWorkouts, storeWorkout and fetchLastWorkout KDoc, and the fix for findings 4 and 7 also covers the LOW_BATTERY and CANCELLED comments and the iOS 'denied' note. Every 'Por enquanto (fase 3 em andamento)' note in Repo 1 (WatchSession.kt) and Repo 2 (src/index.ts, src/constants.ts, src/specs/NativeCoreNext.ts) must be removed when S3, S4 and S5 land. The components test, which encodes stub behavior, must be updated when S6b makes the chronometer functional.",
+   "I republished Repo 1 even though only KDoc and docs changed there. KDoc is not exported to the ObjC header, and the bytecode differs only in line numbers. Republishing keeps mavenLocal and ios/Frameworks in step with the working tree; F3-D33 lets the integrator publish.",
+   "S6b docs: docs/api-js.md still lacks the components and the current-state notes; the Repo 2 CLAUDE.md asks for it in the same change, and S6a deferred it the same way. DP-73 could mention that the four components now exist as stubs.",
+   "S6b, finding 5: rewrite the iOS 'Produção' text of DP-118 without the divide by zero, which core@v4.4.5 CRPActivityHelper.m fixed; the dead `count < 0` guard is still there. The production baseline 'Condor fixa v4.3.57' is stale since GTE-CondorSmart 7845bd7 (2026-11-03 00:55). It still appears in the header of docs/desvios-de-producao.md and in the Repo 2 CLAUDE.md, which this workflow does not edit. Other CRP native changes between the tags that S6b should re-check in the DPs on the iOS stop path: CRPActivityManagerV2.m runOnActivityStopped now calls stopAutomaticUpdates and turns off the location manager ('No Force' comment); CRPService.m startPairingAttempt now calls pairDevice; cancelPairing is empty on both platforms. The JS contract is identical apart from startPairingAttempt/cancelPairing, which the Condor does not call.",
+   "S2a/S2b: the owner of the unsolicited B2 01 is now CrpActivityControl, matching spec.api and S2b. Only CrpActivityControl.onUnsolicited may return true for it, and F3-D10 says it is only logged. CrpWorkoutReader.onUnsolicited has no candidate.",
+   "decisoes-usuario.md (01:30) defers the app-started activity, which is cut (c). The computed task treats the user questions as unanswered, so the new notes are neutral ('por enquanto'). If cut (c) is confirmed, S6b must rewrite the TSDoc of start/pause/resume/stop and the deviceConnectStates comment to describe the permanent stub.",
+   "Every pod install on this machine strips the empty inputPaths/outputPaths from example/ios/CoreNextExample.xcodeproj/project.pbxproj. I reverted it again; the reverse-patched diff is at /private/tmp/claude-502/-Users-joao-farias-GTE-Mormaii/ae4c00f2-34b0-4c1a-b929-4ce810ea855c/scratchpad/close-f3/pbxproj-podnoise.diff. Gate logs are in /private/tmp/claude-502/-Users-joao-farias-GTE-Mormaii/ae4c00f2-34b0-4c1a-b929-4ce810ea855c/scratchpad/close-f3/.",
+   "Still open from S0: the Repo 1 CLAUDE.md package table says profile/ depends on 'nada', but it now imports domain/DataKind. I did not edit any CLAUDE.md. Nothing was committed or staged."
+  ]
+ }
+}

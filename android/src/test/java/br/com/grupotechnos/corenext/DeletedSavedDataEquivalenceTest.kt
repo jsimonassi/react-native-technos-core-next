@@ -119,6 +119,16 @@ class DeletedSavedDataEquivalenceTest {
 		override fun requestClassicBond(address: String) {}
 
 		override fun removeClassicBond(address: String) {}
+
+		override fun startActivityWork() {}
+
+		override fun stopActivityWork() {}
+
+		override fun loadPreference(key: String): String? = null
+
+		override fun savePreference(key: String, value: String?) {}
+
+		override fun locationAuthorization(): String? = null
 	}
 
 	private val logger = CapturingLogger()

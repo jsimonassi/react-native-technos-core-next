@@ -6,7 +6,7 @@ Persistência local do Core Android.
 
 | Tipo | Papel |
 |---|---|
-| `FileSampleStore` | `SampleStore` do Repo 1 em JSON, em `context.filesDir/corenext/`: `steps.json`, `sleep.json`, `confirmed-steps.json`, `confirmed-sleep.json`. Escrita atômica (`.tmp` + `fsync` + rename). |
+| `FileSampleStore` | `SampleStore` do Repo 1 em JSON, em `context.filesDir/corenext/`: `steps.json`, `sleep.json`, `confirmed-steps.json`, `confirmed-sleep.json` (e os `confirmed-<tipo>.json` dos tipos da fase 3). Escrita atômica (`.tmp` + `fsync` + rename). Medições e treinos da fase 3 ainda em stub: carregam vazio e não gravam, com `DEBUG`. |
 | `SampleJsonCodec` | Formato dos arquivos (`{"version":1,"items":[...]}`) com `org.json`. Item inválido é pulado, não derruba o arquivo. |
 | `PairingPrefs` | `SharedPreferences` `"corenext.pairing"`: `address`, `profileId`, `name`. Gravado ao chegar em `READY` (nunca depois de um disconnect/forget do usuário), apagado no `forgetDevice` e de novo quando ele termina. |
 

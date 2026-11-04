@@ -18,10 +18,14 @@ import com.facebook.react.bridge.ReadableMap
  *
  * O que fica aqui é só o que depende do React Native: o [CoreEventSink] (o `emitOnX` gerado pelo codegen para cada
  * nome, com o payload pelo [WritableConverter]), a conversão dos argumentos que chegam como tipos do RN
- * ([ReadableConverter]: `ReadableMap` → `Map` e `ReadableArray` → `List`, no `deletedSavedData` e nos dicionários e
- * listas da fase 2; booleanos, números e textos passam como estão) e os ganchos de ciclo de vida. Os dicionários vão
- * sem interpretação: chaves, tipos, padrões e `INVALID_ARGUMENT` são do `SettingsMapper` do [CoreBridge] (D7 da
- * fase 2).
+ * ([ReadableConverter]: `ReadableMap` → `Map` e `ReadableArray` → `List`, no `deletedSavedData`, nos dicionários e
+ * listas da fase 2 e nas opções do início e do fim da atividade da fase 3; booleanos, números e textos passam como
+ * estão) e os ganchos de ciclo de vida. Os dicionários vão sem interpretação: chaves, tipos, padrões e
+ * `INVALID_ARGUMENT` são do [CoreBridge] (`SettingsMapper`, D7 da fase 2).
+ *
+ * O `when` do [emit] tem um ramo por `EventEmitter` do spec (27: 13 da fase 1, 4 da fase 2 e 10 da fase 3); um nome
+ * sem ramo lança, e o [CoreBridge] devolve o evento à fila. O `NativeCoreNextEmitRoutingTest` confere os ramos contra
+ * os `emitOnX` que o codegen gerou.
  *
  * Os parâmetros são não nulos, como no spec. O RN entrega `null`/`undefined` do JS como `null` para mapa, lista e
  * texto; a checagem de parâmetro do Kotlin lança antes de chamar o [CoreBridge], e o RN 0.81 rejeita a Promise com um
@@ -79,6 +83,16 @@ class NativeCoreNextModule(reactContext: ReactApplicationContext) :
 			"onTakeAPicture" -> emitOnTakeAPicture(map)
 			"onOpenCameraMode" -> emitOnOpenCameraMode(map)
 			"onDeviceRequestedCameraMode" -> emitOnDeviceRequestedCameraMode(map)
+			"onHistoryHeartRate" -> emitOnHistoryHeartRate(map)
+			"onHistoryStress" -> emitOnHistoryStress(map)
+			"onHistorySpo2" -> emitOnHistorySpo2(map)
+			"onHistoryActivityV2" -> emitOnHistoryActivityV2(map)
+			"onActivityStartedV2" -> emitOnActivityStartedV2(map)
+			"onActivityStatusV2" -> emitOnActivityStatusV2(map)
+			"onActivityUpdateV2" -> emitOnActivityUpdateV2(map)
+			"onActivityCompletedV2" -> emitOnActivityCompletedV2(map)
+			"onActivityError" -> emitOnActivityError(map)
+			"onActivityRealTimeSpeed" -> emitOnActivityRealTimeSpeed(map)
 			"onError" -> emitOnError(map)
 			"onLog" -> emitOnLog(map)
 			else -> throw IllegalArgumentException("Unknown event $name")
@@ -144,6 +158,21 @@ class NativeCoreNextModule(reactContext: ReactApplicationContext) :
 
 	override fun deletedSavedData(filteredArrayData: ReadableArray, category: Double) =
 		bridge().deletedSavedData(ReadableConverter.toList(filteredArrayData), category)
+
+	// endregion
+
+	// region Históricos da fase 3 (FC, estresse, SpO2 e treinos)
+
+	override fun getHistoryHeartRate(daysBefore: Double, promise: Promise) =
+		bridge().getHistoryHeartRate(daysBefore, PromiseCompletion(promise))
+
+	override fun getHistoryStress(daysBefore: Double, promise: Promise) =
+		bridge().getHistoryStress(daysBefore, PromiseCompletion(promise))
+
+	override fun getHistorySpO2(daysBefore: Double, promise: Promise) =
+		bridge().getHistorySpO2(daysBefore, PromiseCompletion(promise))
+
+	override fun getHistoryActivityV2(promise: Promise) = bridge().getHistoryActivityV2(PromiseCompletion(promise))
 
 	// endregion
 
@@ -226,6 +255,23 @@ class NativeCoreNextModule(reactContext: ReactApplicationContext) :
 	override fun openCameraMode(promise: Promise) = bridge().openCameraMode(PromiseCompletion(promise))
 
 	override fun closeCameraMode(promise: Promise) = bridge().closeCameraMode(PromiseCompletion(promise))
+
+	// endregion
+
+	// region Atividade iniciada pelo app (fase 3)
+
+	override fun startActivityByTypeV2(options: ReadableMap, promise: Promise) =
+		bridge().startActivityByTypeV2(ReadableConverter.toMap(options), PromiseCompletion(promise))
+
+	override fun pauseActivityV2(promise: Promise) = bridge().pauseActivityV2(PromiseCompletion(promise))
+
+	override fun resumeActivityV2(promise: Promise) = bridge().resumeActivityV2(PromiseCompletion(promise))
+
+	override fun stopActivityV2(options: ReadableMap, promise: Promise) =
+		bridge().stopActivityV2(ReadableConverter.toMap(options), PromiseCompletion(promise))
+
+	override fun checkIosBackgroundLocationPermission(promise: Promise) =
+		bridge().checkIosBackgroundLocationPermission(PromiseCompletion(promise))
 
 	// endregion
 

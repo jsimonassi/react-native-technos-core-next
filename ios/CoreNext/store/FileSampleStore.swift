@@ -12,6 +12,9 @@ import TechnosWatchProtocol
 /// - Arquivo ilegível vira lista vazia com `WARN` no log, sem lançar: um arquivo corrompido não derruba a sessão.
 /// - Chamado na thread da sessão (contrato do `SampleStore`); IO síncrono é permitido. Uma trava protege contra o
 ///   `clear` vindo de outra thread.
+/// - Medições (FC e estresse) e treinos da fase 3 ainda em stub (S0h): carregam vazio e não gravam nada, só um `DEBUG`
+///   no log; os arquivos `measurements-*.json` e `workouts.json` chegam numa fatia seguinte. As chaves confirmadas dos
+///   tipos novos já vão para `confirmed-<tipo>.json`, como as dos outros.
 final class FileSampleStore: NSObject, SampleStore {
 	static let stepsFile = "steps.json"
 	static let sleepFile = "sleep.json"
@@ -35,6 +38,28 @@ final class FileSampleStore: NSObject, SampleStore {
 	func loadSleep() -> [SleepSession] { read(FileSampleStore.sleepFile, SampleJsonCodec.decodeSleep) }
 
 	func saveSleep(sessions: [SleepSession]) { write(FileSampleStore.sleepFile) { try SampleJsonCodec.encodeSleep(sessions) } }
+
+	/// Stub: sempre vazio, com `DEBUG` no log.
+	func loadMeasurements(kind: DataKind) -> [MeasurementSample] {
+		log(LogLevel.debug, "loadMeasurements", "kind=\(kind.name) not persisted yet (stub): empty")
+		return []
+	}
+
+	/// Stub: não grava, só o `DEBUG` com o tamanho.
+	func saveMeasurements(kind: DataKind, samples: [MeasurementSample]) {
+		log(LogLevel.debug, "saveMeasurements", "kind=\(kind.name) not persisted yet (stub): dropped \(samples.count) samples")
+	}
+
+	/// Stub: sempre vazio, com `DEBUG` no log.
+	func loadWorkouts() -> [WorkoutRecord] {
+		log(LogLevel.debug, "loadWorkouts", "Workouts not persisted yet (stub): empty")
+		return []
+	}
+
+	/// Stub: não grava, só o `DEBUG` com o tamanho.
+	func saveWorkouts(records: [WorkoutRecord]) {
+		log(LogLevel.debug, "saveWorkouts", "Workouts not persisted yet (stub): dropped \(records.count) records")
+	}
 
 	func loadConfirmedDays(kind: DataKind) -> [String] { read(FileSampleStore.confirmedFile(kind), SampleJsonCodec.decodeDayKeys) }
 

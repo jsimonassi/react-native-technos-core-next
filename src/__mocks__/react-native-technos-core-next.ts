@@ -2,7 +2,10 @@
  * Mock oficial de `react-native-technos-core-next` para Jest.
  *
  * Substitui o TurboModule (que não existe no Jest) por funções `jest.fn` e emissores em memória, com os mesmos
- * nomes exportados por `src/index.ts`. Constantes e `utils` são os reais.
+ * nomes exportados por `src/index.ts`. Constantes, `TechnosCore.activityTypes`, os enums de valor das atividades
+ * (`TechnosActivityV2Status`, `TechnosActivityOrigin`, `TechnosActivityErrorCode`, `PlanType`, `ActionType`), `utils` e
+ * os componentes (`TechnosNativeChronometer`, `TechnosNativeMap`, `TechnosMapStyles`, `TechnosNativeActionTimer`, que
+ * não usam o módulo nativo) são os reais.
  *
  * Como usar no app (setup do Jest):
  * ```js
@@ -17,12 +20,25 @@
  * expect(TechnosCore.getBatteryStatus).toHaveBeenCalled();
  * ```
  *
- * Valores padrão: comandos `Promise<void>` resolvem (inclusive os 23 da fase 2 e o `resetDevice`), `isConnected`
- * resolve `false`, `getLastPairedDevice` resolve `null`, `getLogs` resolve `[]` e `exportLogs` resolve um caminho
- * fictício. Se o app usa `resetMocks`/`jest.resetAllMocks`, chame {@link mockReset} no `beforeEach` para restaurar
- * esses valores. O mock não passa as Promises por `observed`: uma rejeição configurada no teste
- * (`mockRejectedValueOnce`) chega ao app como veio.
+ * Valores padrão: comandos `Promise<void>` resolvem (inclusive os 23 da fase 2, o `resetDevice` e os 8 da fase 3),
+ * `isConnected` resolve `false`, `getLastPairedDevice` resolve `null`, `getLogs` resolve `[]`, `exportLogs` resolve um
+ * caminho fictício e `checkIosBackgroundLocationPermission` resolve `"denied"` (o que o app de exemplo recebe no iOS).
+ * Os `getHistory*` não emitem nada sozinhos: dispare o evento com {@link mockEmit}. Se o app usa
+ * `resetMocks`/`jest.resetAllMocks`, chame {@link mockReset} no `beforeEach` para restaurar esses valores. O mock não
+ * passa as Promises por `observed`: uma rejeição configurada no teste (`mockRejectedValueOnce`) chega ao app como veio.
  */
+import {
+	ActionType,
+	PlanType,
+	TechnosActivityErrorCode,
+	TechnosActivityOrigin,
+	TechnosActivityV2Status,
+} from "../activityEnums";
+import { activityTypes } from "../activityTypes";
+import { TechnosMapStyles } from "../components/mapStyles";
+import { TechnosNativeActionTimer } from "../components/TechnosNativeActionTimer";
+import { TechnosNativeChronometer } from "../components/TechnosNativeChronometer";
+import { TechnosNativeMap } from "../components/TechnosNativeMap";
 import { deletedCategory, deviceConnectStates, errorCodes, logLevels, technosEventNames } from "../constants";
 import type { TechnosCore as RealTechnosCore } from "../index";
 import type { TechnosEventEmitter, TechnosEventEmitters, TechnosEventMap, TechnosEventName } from "../types/emitter";
@@ -86,6 +102,7 @@ export const TechnosCore: MockedTechnosCore = {
 	deletedCategory,
 	errorCodes,
 	logLevels,
+	activityTypes,
 	initialize: resolved(),
 	initSMASDK: resolved(),
 	initCRPSDK: resolved(),
@@ -106,6 +123,10 @@ export const TechnosCore: MockedTechnosCore = {
 	syncDataHistory: resolved(),
 	getHistoryPedometer: resolved(),
 	getHistorySleep: resolved(),
+	getHistoryHeartRate: resolved(),
+	getHistoryStress: resolved(),
+	getHistorySpO2: resolved(),
+	getHistoryActivityV2: resolved(),
 	deletedSavedData: jest.fn(),
 	setUserInfo: resolved(),
 	setGoalsV2: resolved(),
@@ -130,6 +151,11 @@ export const TechnosCore: MockedTechnosCore = {
 	vibrateDevice: resolved(),
 	openCameraMode: resolved(),
 	closeCameraMode: resolved(),
+	startActivityByTypeV2: resolved(),
+	pauseActivityV2: resolved(),
+	resumeActivityV2: resolved(),
+	stopActivityV2: resolved(),
+	checkIosBackgroundLocationPermission: jest.fn(),
 	getLogs: jest.fn(),
 	exportLogs: jest.fn(),
 	clearLogs: jest.fn(),
@@ -159,6 +185,10 @@ const applyDefaults = (): void => {
 		TechnosCore.syncDataHistory,
 		TechnosCore.getHistoryPedometer,
 		TechnosCore.getHistorySleep,
+		TechnosCore.getHistoryHeartRate,
+		TechnosCore.getHistoryStress,
+		TechnosCore.getHistorySpO2,
+		TechnosCore.getHistoryActivityV2,
 		TechnosCore.setUserInfo,
 		TechnosCore.setGoalsV2,
 		TechnosCore.set12HourFormat,
@@ -182,6 +212,10 @@ const applyDefaults = (): void => {
 		TechnosCore.vibrateDevice,
 		TechnosCore.openCameraMode,
 		TechnosCore.closeCameraMode,
+		TechnosCore.startActivityByTypeV2,
+		TechnosCore.pauseActivityV2,
+		TechnosCore.resumeActivityV2,
+		TechnosCore.stopActivityV2,
 	] as jest.Mock<Promise<void>, unknown[]>[];
 	for (const method of promiseMethods) {
 		method.mockImplementation(() => Promise.resolve());
@@ -190,6 +224,7 @@ const applyDefaults = (): void => {
 	TechnosCore.getLastPairedDevice.mockImplementation(() => Promise.resolve(null));
 	TechnosCore.getLogs.mockImplementation(() => Promise.resolve([]));
 	TechnosCore.exportLogs.mockImplementation(() => Promise.resolve(MOCK_EXPORT_PATH));
+	TechnosCore.checkIosBackgroundLocationPermission.mockImplementation(() => Promise.resolve("denied"));
 };
 
 /**
@@ -222,8 +257,34 @@ export const TechnosEvents: TechnosEventEmitters = {
 	onTakeAPicture: createEmitter("onTakeAPicture"),
 	onOpenCameraMode: createEmitter("onOpenCameraMode"),
 	onDeviceRequestedCameraMode: createEmitter("onDeviceRequestedCameraMode"),
+	onHistoryHeartRate: createEmitter("onHistoryHeartRate"),
+	onHistoryStress: createEmitter("onHistoryStress"),
+	onHistorySpo2: createEmitter("onHistorySpo2"),
+	onHistoryActivityV2: createEmitter("onHistoryActivityV2"),
+	onActivityStartedV2: createEmitter("onActivityStartedV2"),
+	onActivityStatusV2: createEmitter("onActivityStatusV2"),
+	onActivityUpdateV2: createEmitter("onActivityUpdateV2"),
+	onActivityCompletedV2: createEmitter("onActivityCompletedV2"),
+	onActivityError: createEmitter("onActivityError"),
+	onActivityRealTimeSpeed: createEmitter("onActivityRealTimeSpeed"),
 	onError: createEmitter("onError"),
 	onLog: createEmitter("onLog"),
 };
 
-export { deletedCategory, deviceConnectStates, errorCodes, logLevels, technosEventNames, utils };
+export {
+	ActionType,
+	PlanType,
+	TechnosActivityErrorCode,
+	TechnosActivityOrigin,
+	TechnosActivityV2Status,
+	TechnosMapStyles,
+	TechnosNativeActionTimer,
+	TechnosNativeChronometer,
+	TechnosNativeMap,
+	deletedCategory,
+	deviceConnectStates,
+	errorCodes,
+	logLevels,
+	technosEventNames,
+	utils,
+};

@@ -15,6 +15,10 @@ import TechnosWatchProtocol
 ///
 /// Vínculo Bluetooth clássico (`Quirks.classicBond`, o Condor Reebok): o iOS não deixa o app criar nem remover; o host
 /// responde "não suportado" com a dica de parear em Ajustes > Bluetooth, e o `CoreBridge` só registra um WARN.
+///
+/// Fase 3, ainda em stub (S0h): o trabalho de atividade só vai ao log, as preferências ficam só em memória (o
+/// `PreferencesStore` sobre o `UserDefaults` chega numa fatia seguinte) e a autorização de localização é sempre
+/// `"denied"` (a leitura do `CLLocationManager` também chega depois).
 final class IosCoreHost: NSObject, CoreHost {
 	/// Nome da autorização na mensagem `"Missing <nome>"` do `onError` (`docs/arquitetura.md` do Repo 1, seção 13).
 	static let bluetoothPermissionName = "Bluetooth"
@@ -130,6 +134,44 @@ final class IosCoreHost: NSObject, CoreHost {
 	func removeClassicBond(address: String) {
 		logger.log(level: LogLevel.info, tag: "IosCoreHost/removeClassicBond", message: "\(address): \(IosCoreHost.classicBondRemovalHint)")
 	}
+
+	// MARK: - Fase 3 (stub)
+
+	/// Preferências do `CoreBridge` (hoje só `userProfile`), por enquanto só em memória: somem com o processo. O
+	/// `CoreBridge` chama de qualquer thread, por isso a trava.
+	private var preferences: [String: String] = [:]
+	private let preferencesLock = NSLock()
+
+	/// Stub: só o log. Sem localização em segundo plano, o app conta com o modo `bluetooth-central`.
+	func startActivityWork() {
+		logger.log(level: LogLevel.info, tag: "IosCoreHost/startActivityWork", message: "Activity work requested; log only (stub)")
+	}
+
+	/// Stub: só o log, par do `startActivityWork`.
+	func stopActivityWork() {
+		logger.log(level: LogLevel.info, tag: "IosCoreHost/stopActivityWork", message: "Activity work finished (stub)")
+	}
+
+	/// O valor guardado em memória para `key`, ou `nil`.
+	func loadPreference(key: String) -> String? {
+		preferencesLock.lock()
+		defer { preferencesLock.unlock() }
+		return preferences[key]
+	}
+
+	/// Guarda `value` em memória em `key`; `nil` apaga.
+	func savePreference(key: String, value: String?) {
+		preferencesLock.lock()
+		defer { preferencesLock.unlock() }
+		preferences[key] = value
+	}
+
+	/// Stub: sempre `"denied"`, o que a produção responde sem a autorização "Sempre" (o app de exemplo nem tem a chave de
+	/// uso dela no Info.plist).
+	func locationAuthorization() -> String? { IosCoreHost.locationDenied }
+
+	/// Resposta do `checkIosBackgroundLocationPermission` sem a autorização "Sempre".
+	static let locationDenied = "denied"
 
 	/// `yyyyMMdd-HHmmss` no fuso do telefone, como o carimbo do Android.
 	static func stamp(_ date: Date) -> String {

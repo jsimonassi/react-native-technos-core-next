@@ -255,6 +255,66 @@ final class StoreAndLogTests: XCTestCase {
 		XCTAssertEqual(logger.entries(limit: 1).first?.tag, "IosCoreHost/removeClassicBond")
 		XCTAssertEqual(results.count, 1, "removal never answers")
 	}
+
+	/// Fase 3 em stub (S0h): medições e treinos não vão a arquivo (só `DEBUG`); as chaves confirmadas dos tipos novos já
+	/// vão, e o `clear` as apaga.
+	func testPhase3MeasurementsAndWorkoutsAreStubsThatLoadEmptyAndWriteNothing() throws {
+		let logger = RingLogger(recorder: FrameRecorder())
+		let store = FileSampleStore(directory: directory, logger: logger)
+		let workout = WorkoutRecord(
+			startEpochMillis: 1_793_615_400_000, endEpochMillis: 1_793_617_200_000, activeSeconds: 1750, sportType: 2,
+			familySportType: 1, steps: 4000, distanceMeters: 3500, calories: 250, heartRates: [KotlinInt(int: 90), KotlinInt(int: 100), KotlinInt(int: 0)],
+			heartRateIntervalSeconds: 10, origin: WorkoutOrigin.watch, locationEnabled: false, gpsDistanceMeters: 0
+		)
+		store.saveMeasurements(kind: DataKind.heartRate, samples: [MeasurementSample(atEpochMillis: 1_793_631_600_000, value: 72)])
+		store.saveMeasurements(kind: DataKind.stress, samples: [MeasurementSample(atEpochMillis: 1_793_631_600_000, value: 30)])
+		store.saveWorkouts(records: [workout])
+
+		let reopened = FileSampleStore(directory: directory, logger: logger)
+		XCTAssertEqual(reopened.loadMeasurements(kind: DataKind.heartRate), [])
+		XCTAssertEqual(reopened.loadMeasurements(kind: DataKind.stress), [])
+		XCTAssertEqual(reopened.loadWorkouts(), [])
+		XCTAssertFalse(FileManager.default.fileExists(atPath: directory.path), "the stubs must not create files")
+		let entries = logger.entries(limit: 10).reversed()
+		XCTAssertEqual(
+			entries.map { $0.tag },
+			["saveMeasurements", "saveMeasurements", "saveWorkouts", "loadMeasurements", "loadMeasurements", "loadWorkouts"].map { "FileSampleStore/\($0)" }
+		)
+		XCTAssertTrue(entries.allSatisfy { $0.level == LogLevel.debug })
+
+		reopened.saveConfirmedDays(kind: DataKind.heartRate, dayKeys: ["2026-11-02T12"])
+		reopened.saveConfirmedDays(kind: DataKind.workouts, dayKeys: ["1793615400"])
+		XCTAssertEqual(FileSampleStore(directory: directory, logger: logger).loadConfirmedDays(kind: DataKind.heartRate), ["2026-11-02T12"])
+		XCTAssertTrue(FileManager.default.fileExists(atPath: directory.appendingPathComponent("confirmed-heart_rate.json").path))
+		XCTAssertTrue(FileManager.default.fileExists(atPath: directory.appendingPathComponent("confirmed-workouts.json").path))
+		reopened.clear()
+		XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: directory.path), [])
+	}
+
+	/// Fase 3 em stub (S0h): preferências em memória (o `nil` apaga), o trabalho de atividade só no log e a autorização de
+	/// localização sempre `"denied"`.
+	func testPhase3HostStubsKeepPreferencesInMemoryAndAnswerDenied() {
+		let recorder = FrameRecorder()
+		let logger = RingLogger(recorder: recorder)
+		let suite = "br.com.grupotechnos.corenext.tests.\(UUID().uuidString)"
+		let defaults = UserDefaults(suiteName: suite)!
+		defer { defaults.removePersistentDomain(forName: suite) }
+		let host = IosCoreHost(logger: logger, recorder: recorder, pairing: PairingStore(defaults: defaults), transport: StubTransport(), backgroundWork: NoBackgroundWork(), exportDirectory: directory)
+		XCTAssertNil(host.loadPreference(key: "userProfile"))
+		host.savePreference(key: "userProfile", value: #"{"gender":"MALE"}"#)
+		XCTAssertEqual(host.loadPreference(key: "userProfile"), #"{"gender":"MALE"}"#)
+		XCTAssertNil(host.loadPreference(key: "other"))
+		host.savePreference(key: "userProfile", value: nil)
+		XCTAssertNil(host.loadPreference(key: "userProfile"))
+		XCTAssertTrue(defaults.dictionaryRepresentation().keys.allSatisfy { !$0.contains("userProfile") }, "in memory only")
+
+		XCTAssertEqual(host.locationAuthorization(), "denied")
+
+		host.startActivityWork()
+		host.stopActivityWork()
+		let tags = logger.entries(limit: 2).reversed().map { "\($0.level.name) \($0.tag)" }
+		XCTAssertEqual(tags, ["INFO IosCoreHost/startActivityWork", "INFO IosCoreHost/stopActivityWork"])
+	}
 }
 
 /// Transporte mínimo para o `IosCoreHost` responder sem Bluetooth.
